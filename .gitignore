@@ -28,6 +28,7 @@ env/
 
 # Environment variables
 .env
+backend/.env
 
 # IDE
 .vscode/
@@ -40,13 +41,20 @@ env/
 .DS_Store
 Thumbs.db
 
-# Project specific
-inputs/*.pdf
-inputs/*.docx
-inputs/*.txt
-!inputs/sample_project_test.txt
+# Project specific - Sensitive data directories
+# Block all files in these directories except README files
+inputs/*
 !inputs/README.md
 !inputs/README_TEST.md
-outputs/
+!inputs/sample_project_test.txt
+
+outputs/*
+!outputs/.gitkeep
+
+meetings/*
+!meetings/README.md
+
+# Additional file patterns
 *.pdf
+*.docx
 *.log
