@@ -41,7 +41,12 @@ env/
 Thumbs.db
 
 # Project specific
-inputs/
+inputs/*.pdf
+inputs/*.docx
+inputs/*.txt
+!inputs/sample_project_test.txt
+!inputs/README.md
+!inputs/README_TEST.md
 outputs/
 *.pdf
 *.log

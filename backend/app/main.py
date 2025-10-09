@@ -19,8 +19,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Import routers (will create these next)
-# from app.routers import ingest, draft, publish, meeting, qa
+# Import routers
+from app.routers import ingest
+# from app.routers import draft, publish, meeting, qa
 
 app = FastAPI(
     title="Strategic Build Planner API",
@@ -65,8 +66,8 @@ async def root():
         }
     }
 
-# Include routers (uncomment as we build them)
-# app.include_router(ingest.router, prefix="/api", tags=["ingest"])
+# Include routers
+app.include_router(ingest.router, prefix="/api", tags=["ingest"])
 # app.include_router(draft.router, prefix="/api", tags=["draft"])
 # app.include_router(publish.router, prefix="/api", tags=["publish"])
 # app.include_router(meeting.router, prefix="/api/meeting", tags=["meeting"])
