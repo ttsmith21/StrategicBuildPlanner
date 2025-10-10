@@ -73,6 +73,8 @@ def confluence_create_child(
     parent_id: Optional[str],
     title: str,
     storage_html: str,
+    *,
+    space_key: Optional[str] = None,
 ) -> Dict[str, str]:
     """Create a child page under the given parent using Confluence v2 API.
 
@@ -86,11 +88,13 @@ def confluence_create_child(
     """
     cfg = _load_confluence_config()
 
+    target_space = space_key or cfg["space"]
+
     response = create_confluence_page(
         cfg["base"],
         cfg["email"],
         cfg["token"],
-        cfg["space"],
+        target_space,
         parent_id,
         title,
         storage_html,

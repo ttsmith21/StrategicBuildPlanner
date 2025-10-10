@@ -130,6 +130,35 @@ StrategicBuildPlanner/
 - Markdown (human-readable, ready for Confluence)
 - Optional: Direct publish to Confluence as a child page
 
+## Context Pack & Precedence
+
+Every draft stores a **Context Pack** that fuses uploaded files, Confluence pages, and agent-generated facts. When facts disagree, the system promotes the highest-precedence, highest-authority source to `canonical` and marks the rest as `proposed` or `superseded`.
+
+| Source kind       | Authority   | Precedence rank |
+|-------------------|-------------|-----------------|
+| drawing           | mandatory   | 1               |
+| po                | mandatory   | 1               |
+| itp               | mandatory   | 2               |
+| quote             | conditional | 2               |
+| customer_spec     | mandatory   | 3               |
+| supplier_qm       | conditional | 4               |
+| generic_spec      | reference   | 5               |
+| email             | internal    | 20              |
+| lessons_learned   | internal    | 99              |
+| (everything else) | reference   | 10              |
+
+Lower numbers win; mandatory sources beat conditional, reference, and internal notes. The matrix lives in `server/lib/context_pack.py` and drives the precedence column surfaced in the web UI.
+
+## Specialist Agents & QA (/agents/run)
+
+Once a draft exists, call `POST /agents/run` to orchestrate three specialist passes:
+
+- **QEA** (Quality Evidence Aggregator) augments the context pack with authoritative facts.
+- **QDD** (Quality Delta Detector) compares the augmented context to `server/lib/baseline_quality.json` and surfaces non-standard deltas grouped by owner buckets (ENG/QA/BUY/SCHED/LEGAL).
+- **EMA** (Engineering Methods Assistant) proposes routing, fixture, and CTQ updates.
+
+The endpoint returns the patched plan, suggested tasks, and a QA gate. If the score falls below 85, the UI blocks publishing until the recommended fixes are addressed.
+
 ---
 
 ## 📋 APQP Coverage (Stainless Sheet-Metal)

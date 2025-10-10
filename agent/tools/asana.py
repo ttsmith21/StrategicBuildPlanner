@@ -14,8 +14,8 @@ def asana_create_tasks(
 ) -> Dict[str, List[Dict[str, Optional[str]]]]:
     """Create tasks in Asana using the shared library helper."""
 
-    created = create_tasks(project_id, tasks, default_plan_url=plan_url)
-    return {"created": created}
+    result = create_tasks(project_id, tasks, default_plan_url=plan_url)
+    return result
 
 
 __all__ = ["asana_create_tasks", "AsanaConfigError"]

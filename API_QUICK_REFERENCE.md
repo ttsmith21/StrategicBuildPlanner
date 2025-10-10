@@ -182,7 +182,49 @@ Response:
 
 ---
 
-### 7. Create Asana Tasks
+### 7. Run Specialist Agents
+```bash
+POST /agents/run
+Content-Type: application/json
+
+Body:
+{
+  "session_id": "uuid-from-ingest",
+  "vector_store_id": "vs_abc123",
+  "plan_json": { /* Current plan */ }
+}
+
+Response:
+{
+  "plan_json": { /* Patched plan JSON */ },
+  "deltas": [
+    {
+      "topic": "Materials",
+      "delta_type": "non_standard",
+      "recommended_action": "Escalate to quality for disposition",
+      "owner_hint": "QA"
+    }
+  ],
+  "ema_patch": {
+    "engineering_instructions": {
+      "routing": [...]
+    }
+  },
+  "tasks_suggested": [
+    { "name": "Resolve open question #1", "owner_hint": "ENG" }
+  ],
+  "qa": {
+    "score": 84.5,
+    "blocked": true,
+    "summary": "Finish cell missing passivation plan",
+    "fixes": ["Specify passivation vendor or mark none"]
+  }
+}
+```
+
+This endpoint orchestrates QEA, QDD, and EMA agents using the context pack precedence matrix. Plan-level fingerprints and owner buckets (ENG/QA/BUY/SCHED/LEGAL) are returned so the web UI can group follow-up work. When `qa.blocked` is true the frontend disables Confluence publishing.
+
+### 8. Create Asana Tasks
 ```bash
 POST /asana/tasks
 Content-Type: application/json
@@ -206,7 +248,7 @@ When no explicit `tasks` array is provided, the API will auto-derive tasks from 
 
 ---
 
-### 8. Cleanup Session
+### 9. Cleanup Session
 ```bash
 DELETE /session/{session_id}
 
