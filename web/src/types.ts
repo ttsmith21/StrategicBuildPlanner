@@ -48,8 +48,111 @@ export interface EngineeringInstructions {
   open_items: EngineeringOpenItem[];
 }
 
+export interface PlanRequirement {
+  topic: string;
+  requirement: string;
+  source_hint: string;
+  confidence: number;
+}
+
+export interface CitationRef {
+  source_id: string;
+  page_ref?: string | null;
+  passage_sha?: string | null;
+}
+
+export interface QualityPlan {
+  ctqs: string[];
+  inspection_levels: string[];
+  passivation: string | null;
+  cleanliness: string | null;
+  hold_points: string[];
+  required_tests: string[];
+  documentation: string[];
+  metrology: string[];
+}
+
+export interface PurchasingItem {
+  item: string;
+  lead_time?: string | null;
+  vendor_hint?: string | null;
+  citations: CitationRef[];
+}
+
+export interface PurchasingAlternate {
+  item: string;
+  alternate: string;
+  rationale?: string | null;
+  citations: CitationRef[];
+}
+
+export interface PurchasingRfq {
+  item: string;
+  vendor?: string | null;
+  due?: string | null;
+  citations: CitationRef[];
+}
+
+export interface PurchasingPlan {
+  long_leads: PurchasingItem[];
+  coo_mtr?: string | null;
+  alternates: PurchasingAlternate[];
+  rfqs: PurchasingRfq[];
+}
+
+export interface ScheduleMilestone {
+  name: string;
+  start_hint?: string | null;
+  end_hint?: string | null;
+  owner?: string | null;
+  citations: CitationRef[];
+}
+
+export interface SchedulePlan {
+  milestones: ScheduleMilestone[];
+  do_early: string[];
+  risks: string[];
+}
+
+export interface ExecutionTimebox {
+  window: string;
+  focus: string;
+  owner_hint?: string | null;
+  notes: string[];
+  citations: CitationRef[];
+}
+
+export interface ExecutionStrategy {
+  timeboxes: ExecutionTimebox[];
+  notes: string[];
+}
+
+export interface PlanConflict {
+  topic: string;
+  issue: string;
+  citations: CitationRef[];
+}
+
 export interface PlanJson {
+  project?: string;
+  customer?: string;
+  revision?: string;
+  summary?: string;
+  requirements?: PlanRequirement[];
+  process_flow?: string;
+  tooling_fixturing?: string;
+  materials_finishes?: string;
+  ctqs?: string[];
+  risks?: string[];
+  open_questions?: string[];
+  cost_levers?: string[];
+  pack_ship?: string;
+  source_files_used?: string[];
   engineering_instructions?: EngineeringInstructions;
+  quality_plan?: QualityPlan;
+  purchasing?: PurchasingPlan;
+  release_plan?: SchedulePlan;
+  execution_strategy?: ExecutionStrategy;
   [key: string]: unknown;
 }
 
@@ -104,6 +207,7 @@ export interface QAGradeResponseData {
   score: number;
   reasons: string[];
   fixes: string[];
+  blocked?: boolean;
 }
 
 export interface SuggestedTask {
@@ -219,15 +323,18 @@ export interface AgentDelta {
   citation?: EngineeringCitation;
 }
 
+export type SpecialistAgentKey = "qma" | "pma" | "sca" | "ema" | "sbpqa";
+
 export interface AgentsRunResponseData {
   plan_json: PlanJson;
   deltas?: AgentDelta[];
-  ema_patch?: { engineering_instructions?: EngineeringInstructions };
   tasks_suggested?: SuggestedTask[];
   qa?: {
     score?: number;
     blocked?: boolean;
     summary?: string;
     fixes?: string[];
+    reasons?: string[];
   };
+  conflicts?: PlanConflict[];
 }

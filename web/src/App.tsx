@@ -25,6 +25,8 @@ import {
   VersionInfo,
   ContextPack,
   AgentsRunResponseData,
+  PlanConflict,
+  SpecialistAgentKey,
 } from "./types";
 
 const now = () => new Date().toISOString();
@@ -37,10 +39,32 @@ const MAX_RECENT_PAGES = 6;
 
 type AgentStatus = "idle" | "pending" | "ok" | "warn";
 
-const INITIAL_AGENT_STATUSES: Record<"qea" | "qdd" | "ema", AgentStatus> = {
-  qea: "idle",
-  qdd: "idle",
+const SPECIALIST_AGENT_KEYS: readonly SpecialistAgentKey[] = [
+  "qma",
+  "pma",
+  "sca",
+  "ema",
+  "sbpqa",
+];
+
+type AgentStatusMap = Record<SpecialistAgentKey, AgentStatus>;
+
+const INITIAL_AGENT_STATUSES: AgentStatusMap = {
+  qma: "idle",
+  pma: "idle",
+  sca: "idle",
   ema: "idle",
+  sbpqa: "idle",
+};
+
+const makeAgentStatuses = (
+  status: AgentStatus,
+  overrides: Partial<AgentStatusMap> = {}
+): AgentStatusMap => {
+  const base = Object.fromEntries(
+    SPECIALIST_AGENT_KEYS.map((key) => [key, status])
+  ) as AgentStatusMap;
+  return { ...base, ...overrides };
 };
 
 const extractConfluenceDetails = (
@@ -101,6 +125,7 @@ export default function App() {
   const [qaResult, setQaResult] = useState<QAGradeResponseData | null>(null);
   const [asanaTasks, setAsanaTasks] = useState<AsanaTaskSummary[]>([]);
   const [suggestedTasks, setSuggestedTasks] = useState<SuggestedTask[]>([]);
+  const [planConflicts, setPlanConflicts] = useState<PlanConflict[]>([]);
   const [knownFingerprints, setKnownFingerprints] = useState<string[]>([]);
   const [asanaSkippedCount, setAsanaSkippedCount] = useState<number>(0);
   const [confluenceParentId, setConfluenceParentId] = useState<string>("");
@@ -247,6 +272,7 @@ export default function App() {
     setQaBlocked(false);
     setAsanaTasks([]);
     setSuggestedTasks([]);
+    setPlanConflicts([]);
     setKnownFingerprints([]);
     setAsanaSkippedCount(0);
     setMessages([]);
@@ -295,9 +321,11 @@ export default function App() {
     async (plan: PlanJson) => {
       try {
         const { data } = await api.post<QAGradeResponseData>("/qa/grade", { plan_json: plan });
-        setQaResult(data);
-        setQaBlocked(data.score < 85);
-        return data;
+        const blocked = data.blocked ?? data.score < 85;
+        const normalized: QAGradeResponseData = { ...data, blocked };
+        setQaResult(normalized);
+        setQaBlocked(blocked);
+        return normalized;
       } catch (err) {
         console.warn("Failed to refresh QA grade", err);
         return null;
@@ -442,8 +470,10 @@ export default function App() {
       return data;
     },
     onSuccess: (data) => {
-      setQaResult(data);
-      setQaBlocked(data.score < 85);
+      const blocked = data.blocked ?? data.score < 85;
+      const normalized: QAGradeResponseData = { ...data, blocked };
+      setQaResult(normalized);
+      setQaBlocked(blocked);
       setStatusMessage("QA grade completed.");
       setMessages((prev: ChatMessage[]) => [
         ...prev,
@@ -525,7 +555,10 @@ export default function App() {
         },
       ]);
       setError(null);
-      pushToast("success", "Asana tasks request sent.");
+      pushToast(
+        "success",
+        `Created ${data.created.length}, skipped ${data.skipped.length} duplicate task(s).`
+      );
     },
     onError: (err: Error) => {
       setError(err.message || "Failed to create Asana tasks.");
@@ -552,21 +585,44 @@ export default function App() {
       return data;
     },
     onMutate: () => {
-      setAgentStatuses({ qea: "pending", qdd: "pending", ema: "pending" });
+      setAgentStatuses(makeAgentStatuses("pending"));
       setStatusMessage("Running specialist agents…");
     },
     onSuccess: async (data) => {
       setPlanJson(data.plan_json);
-      setAgentStatuses({ qea: "ok", qdd: "ok", ema: "ok" });
       setSuggestedTasks(data.tasks_suggested ?? []);
+      setPlanConflicts(data.conflicts ?? []);
       setStatusMessage("Specialist agents completed.");
       setError(null);
       pushToast("success", "Specialist agents completed.");
-      setQaBlocked(Boolean(data.qa?.blocked));
-      await gradePlanSilently(data.plan_json);
+      const qaPayload = data.qa;
+      let qaBlockedState = false;
+      if (qaPayload) {
+        const score = typeof qaPayload.score === "number" ? qaPayload.score : 0;
+        const blocked = qaPayload.blocked ?? score < 85;
+        setQaResult({
+          score,
+          reasons: qaPayload.reasons ?? [],
+          fixes: qaPayload.fixes ?? [],
+          blocked,
+        });
+        setQaBlocked(blocked);
+        qaBlockedState = blocked;
+      } else {
+        const refreshed = await gradePlanSilently(data.plan_json);
+        qaBlockedState = Boolean(refreshed?.blocked ?? (refreshed ? refreshed.score < 85 : qaBlocked));
+      }
+
+      const hasConflicts = (data.conflicts ?? []).length > 0;
+      setAgentStatuses(
+        makeAgentStatuses("ok", {
+          sbpqa: qaBlockedState ? "warn" : "ok",
+          ...(hasConflicts ? { qma: "warn", pma: "warn", sca: "warn", ema: "warn" } : {}),
+        })
+      );
     },
     onError: (err: Error) => {
-      setAgentStatuses({ qea: "warn", qdd: "warn", ema: "warn" });
+      setAgentStatuses(makeAgentStatuses("warn"));
       setError(err.message || "Failed to run specialist agents.");
       pushToast("error", err.message || "Failed to run specialist agents.");
     },
@@ -819,9 +875,12 @@ export default function App() {
 
   const canPublish = Boolean(confluenceParentId.trim());
   const publishDisabled = isBusy || !planJson || !canPublish || qaBlocked;
-  const qaSummary = qaResult
-    ? `Score ${qaResult.score.toFixed(1)} / 100${qaBlocked ? " — Blocked" : ""}`
-    : null;
+  const qaSummary =
+    qaResult?.score !== undefined
+      ? `Score ${qaResult.score.toFixed(1)} / 100${qaBlocked ? " — Blocked" : ""}`
+      : qaBlocked
+      ? "Blocked"
+      : null;
   const qaTopFixes = qaResult?.fixes?.slice(0, 3) ?? [];
 
   const actions = [
@@ -903,6 +962,8 @@ export default function App() {
           qaResult={qaResult}
           asanaTasks={asanaTasks}
           publishUrl={publishResult?.url}
+          conflicts={planConflicts}
+          qaBlocked={qaBlocked}
         />
 
         <ChatPanel

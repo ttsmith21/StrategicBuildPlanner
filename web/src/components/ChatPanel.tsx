@@ -1,7 +1,7 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api";
-import { AsanaProjectSummary, ChatMessage } from "../types";
+import { AsanaProjectSummary, ChatMessage, SpecialistAgentKey } from "../types";
 
 type AgentStatus = "idle" | "pending" | "ok" | "warn";
 
@@ -37,7 +37,7 @@ interface ChatPanelProps {
   statusMessage?: string | null;
   errorMessage?: string | null;
   disabled?: boolean;
-  agentStatuses: Record<"qea" | "qdd" | "ema", AgentStatus>;
+  agentStatuses: Record<SpecialistAgentKey, AgentStatus>;
   agentsRunning: boolean;
 }
 
@@ -145,10 +145,12 @@ export function ChatPanel({
 
   const showProjectMenu = projectFocused && !disabled && projectSearch.trim().length > 1;
 
-  const agentStatusItems: { key: "qea" | "qdd" | "ema"; label: string }[] = [
-    { key: "qea", label: "QEA" },
-    { key: "qdd", label: "QDD" },
-    { key: "ema", label: "EMA" },
+  const agentStatusItems: { key: SpecialistAgentKey; label: string }[] = [
+    { key: "qma", label: "Quality" },
+    { key: "pma", label: "Purchasing" },
+    { key: "sca", label: "Scheduling" },
+    { key: "ema", label: "Engineering" },
+    { key: "sbpqa", label: "QA Gate" },
   ];
 
   const renderStatusIcon = (status: AgentStatus) => {

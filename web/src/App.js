@@ -12,10 +12,23 @@ const makeId = () => typeof crypto !== "undefined" && crypto.randomUUID ? crypto
 const RECENT_CUSTOMERS_KEY = "sbp_recent_customers";
 const RECENT_FAMILIES_KEY = "sbp_recent_families";
 const MAX_RECENT_PAGES = 6;
+const SPECIALIST_AGENT_KEYS = [
+    "qma",
+    "pma",
+    "sca",
+    "ema",
+    "sbpqa",
+];
 const INITIAL_AGENT_STATUSES = {
-    qea: "idle",
-    qdd: "idle",
+    qma: "idle",
+    pma: "idle",
+    sca: "idle",
     ema: "idle",
+    sbpqa: "idle",
+};
+const makeAgentStatuses = (status, overrides = {}) => {
+    const base = Object.fromEntries(SPECIALIST_AGENT_KEYS.map((key) => [key, status]));
+    return { ...base, ...overrides };
 };
 const extractConfluenceDetails = (url) => {
     try {
@@ -73,6 +86,7 @@ export default function App() {
     const [qaResult, setQaResult] = useState(null);
     const [asanaTasks, setAsanaTasks] = useState([]);
     const [suggestedTasks, setSuggestedTasks] = useState([]);
+    const [planConflicts, setPlanConflicts] = useState([]);
     const [knownFingerprints, setKnownFingerprints] = useState([]);
     const [asanaSkippedCount, setAsanaSkippedCount] = useState(0);
     const [confluenceParentId, setConfluenceParentId] = useState("");
@@ -206,6 +220,7 @@ export default function App() {
         setQaBlocked(false);
         setAsanaTasks([]);
         setSuggestedTasks([]);
+        setPlanConflicts([]);
         setKnownFingerprints([]);
         setAsanaSkippedCount(0);
         setMessages([]);
@@ -249,9 +264,11 @@ export default function App() {
     const gradePlanSilently = useCallback(async (plan) => {
         try {
             const { data } = await api.post("/qa/grade", { plan_json: plan });
-            setQaResult(data);
-            setQaBlocked(data.score < 85);
-            return data;
+            const blocked = data.blocked ?? data.score < 85;
+            const normalized = { ...data, blocked };
+            setQaResult(normalized);
+            setQaBlocked(blocked);
+            return normalized;
         }
         catch (err) {
             console.warn("Failed to refresh QA grade", err);
@@ -391,8 +408,10 @@ export default function App() {
             return data;
         },
         onSuccess: (data) => {
-            setQaResult(data);
-            setQaBlocked(data.score < 85);
+            const blocked = data.blocked ?? data.score < 85;
+            const normalized = { ...data, blocked };
+            setQaResult(normalized);
+            setQaBlocked(blocked);
             setStatusMessage("QA grade completed.");
             setMessages((prev) => [
                 ...prev,
@@ -466,7 +485,7 @@ export default function App() {
                 },
             ]);
             setError(null);
-            pushToast("success", "Asana tasks request sent.");
+            pushToast("success", `Created ${data.created.length}, skipped ${data.skipped.length} duplicate task(s).`);
         },
         onError: (err) => {
             setError(err.message || "Failed to create Asana tasks.");
@@ -492,21 +511,42 @@ export default function App() {
             return data;
         },
         onMutate: () => {
-            setAgentStatuses({ qea: "pending", qdd: "pending", ema: "pending" });
+            setAgentStatuses(makeAgentStatuses("pending"));
             setStatusMessage("Running specialist agents…");
         },
         onSuccess: async (data) => {
             setPlanJson(data.plan_json);
-            setAgentStatuses({ qea: "ok", qdd: "ok", ema: "ok" });
             setSuggestedTasks(data.tasks_suggested ?? []);
+            setPlanConflicts(data.conflicts ?? []);
             setStatusMessage("Specialist agents completed.");
             setError(null);
             pushToast("success", "Specialist agents completed.");
-            setQaBlocked(Boolean(data.qa?.blocked));
-            await gradePlanSilently(data.plan_json);
+            const qaPayload = data.qa;
+            let qaBlockedState = false;
+            if (qaPayload) {
+                const score = typeof qaPayload.score === "number" ? qaPayload.score : 0;
+                const blocked = qaPayload.blocked ?? score < 85;
+                setQaResult({
+                    score,
+                    reasons: qaPayload.reasons ?? [],
+                    fixes: qaPayload.fixes ?? [],
+                    blocked,
+                });
+                setQaBlocked(blocked);
+                qaBlockedState = blocked;
+            }
+            else {
+                const refreshed = await gradePlanSilently(data.plan_json);
+                qaBlockedState = Boolean(refreshed?.blocked ?? (refreshed ? refreshed.score < 85 : qaBlocked));
+            }
+            const hasConflicts = (data.conflicts ?? []).length > 0;
+            setAgentStatuses(makeAgentStatuses("ok", {
+                sbpqa: qaBlockedState ? "warn" : "ok",
+                ...(hasConflicts ? { qma: "warn", pma: "warn", sca: "warn", ema: "warn" } : {}),
+            }));
         },
         onError: (err) => {
-            setAgentStatuses({ qea: "warn", qdd: "warn", ema: "warn" });
+            setAgentStatuses(makeAgentStatuses("warn"));
             setError(err.message || "Failed to run specialist agents.");
             pushToast("error", err.message || "Failed to run specialist agents.");
         },
@@ -730,9 +770,11 @@ export default function App() {
     };
     const canPublish = Boolean(confluenceParentId.trim());
     const publishDisabled = isBusy || !planJson || !canPublish || qaBlocked;
-    const qaSummary = qaResult
+    const qaSummary = qaResult?.score !== undefined
         ? `Score ${qaResult.score.toFixed(1)} / 100${qaBlocked ? " — Blocked" : ""}`
-        : null;
+        : qaBlocked
+            ? "Blocked"
+            : null;
     const qaTopFixes = qaResult?.fixes?.slice(0, 3) ?? [];
     const actions = [
         {
@@ -776,7 +818,7 @@ export default function App() {
             variant: "secondary",
         },
     ];
-    return (_jsxs("div", { className: "app-wrapper", children: [_jsx(StatusBar, { healthStatus: healthStatus, confluenceStatus: confluenceStatus, asanaStatus: asanaStatus, onRefresh: handleRefreshStatuses, onToggleAbout: toggleAbout, aboutOpen: aboutOpen, versionInfo: versionQuery.data }), _jsxs("div", { className: "app-shell", children: [_jsx(UploadPanel, { meta: meta, onMetaChange: (update) => setMeta((prev) => ({ ...prev, ...update })), onUpload: handleUpload, uploading: ingestMutation.isPending, sessionId: sessionId, uploadedFiles: uploadedFiles, selectedCustomer: selectedCustomerPage, selectedFamily: selectedFamilyPage, recentCustomers: recentCustomers, recentFamilies: recentFamilies, onCustomerSelected: handleCustomerSelected, onFamilySelected: handleFamilySelected, onFamilyUrlPaste: handleFamilyUrlPaste }), _jsx(PlanPreview, { planJson: planJson, planMarkdown: planMarkdown, qaResult: qaResult, asanaTasks: asanaTasks, publishUrl: publishResult?.url }), _jsx(ChatPanel, { messages: messages, input: chatInput, onInputChange: setChatInput, onSend: handleSendMessage, sending: meetingApplyMutation.isPending, actions: actions, confluenceParentId: confluenceParentId, onConfluenceParentIdChange: handleConfluenceParentIdChange, selectedAsanaProject: selectedAsanaProject, onSelectAsanaProject: handleSelectAsanaProject, manualAsanaProjectId: manualAsanaProjectId, onManualAsanaProjectIdChange: handleManualAsanaProjectIdChange, newProjectName: newProjectName, onNewProjectNameChange: handleNewProjectNameChange, onCreateProject: handleCreateProject, creatingProject: createProjectMutation.isPending, publishUrl: publishResult?.url, qaSummary: qaSummary, qaBlocked: qaBlocked, qaFixes: qaTopFixes, asanaStatus: asanaTasks.length || asanaSkippedCount
+    return (_jsxs("div", { className: "app-wrapper", children: [_jsx(StatusBar, { healthStatus: healthStatus, confluenceStatus: confluenceStatus, asanaStatus: asanaStatus, onRefresh: handleRefreshStatuses, onToggleAbout: toggleAbout, aboutOpen: aboutOpen, versionInfo: versionQuery.data }), _jsxs("div", { className: "app-shell", children: [_jsx(UploadPanel, { meta: meta, onMetaChange: (update) => setMeta((prev) => ({ ...prev, ...update })), onUpload: handleUpload, uploading: ingestMutation.isPending, sessionId: sessionId, uploadedFiles: uploadedFiles, selectedCustomer: selectedCustomerPage, selectedFamily: selectedFamilyPage, recentCustomers: recentCustomers, recentFamilies: recentFamilies, onCustomerSelected: handleCustomerSelected, onFamilySelected: handleFamilySelected, onFamilyUrlPaste: handleFamilyUrlPaste }), _jsx(PlanPreview, { planJson: planJson, planMarkdown: planMarkdown, qaResult: qaResult, asanaTasks: asanaTasks, publishUrl: publishResult?.url, conflicts: planConflicts, qaBlocked: qaBlocked }), _jsx(ChatPanel, { messages: messages, input: chatInput, onInputChange: setChatInput, onSend: handleSendMessage, sending: meetingApplyMutation.isPending, actions: actions, confluenceParentId: confluenceParentId, onConfluenceParentIdChange: handleConfluenceParentIdChange, selectedAsanaProject: selectedAsanaProject, onSelectAsanaProject: handleSelectAsanaProject, manualAsanaProjectId: manualAsanaProjectId, onManualAsanaProjectIdChange: handleManualAsanaProjectIdChange, newProjectName: newProjectName, onNewProjectNameChange: handleNewProjectNameChange, onCreateProject: handleCreateProject, creatingProject: createProjectMutation.isPending, publishUrl: publishResult?.url, qaSummary: qaSummary, qaBlocked: qaBlocked, qaFixes: qaTopFixes, asanaStatus: asanaTasks.length || asanaSkippedCount
                             ? `Created ${asanaTasks.length}, skipped ${asanaSkippedCount}`
                             : null, statusMessage: statusMessage, errorMessage: error, disabled: isBusy, agentStatuses: agentStatuses, agentsRunning: agentsMutation.isPending })] }), _jsx(ToastContainer, { toasts: toasts, onDismiss: dismissToast })] }));
 }

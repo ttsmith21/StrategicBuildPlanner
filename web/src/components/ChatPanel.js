@@ -67,9 +67,11 @@ export function ChatPanel({ messages, input, onInputChange, onSend, sending, act
     const manualProjectId = manualAsanaProjectId;
     const showProjectMenu = projectFocused && !disabled && projectSearch.trim().length > 1;
     const agentStatusItems = [
-        { key: "qea", label: "QEA" },
-        { key: "qdd", label: "QDD" },
-        { key: "ema", label: "EMA" },
+        { key: "qma", label: "Quality" },
+        { key: "pma", label: "Purchasing" },
+        { key: "sca", label: "Scheduling" },
+        { key: "ema", label: "Engineering" },
+        { key: "sbpqa", label: "QA Gate" },
     ];
     const renderStatusIcon = (status) => {
         if (status === "ok") {
