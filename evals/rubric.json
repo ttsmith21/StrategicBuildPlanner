@@ -1,0 +1,36 @@
+{
+  "title": "Strategic Build Planner QA Rubric",
+  "dimensions": [
+    {
+      "name": "Completeness",
+      "weight": 0.25,
+      "description": "All APQP sections populated with project-specific detail; no placeholders or UNKNOWN values."
+    },
+    {
+      "name": "Specificity",
+      "weight": 0.2,
+      "description": "Quantitative tolerances, materials, takt targets, and owners are explicit."
+    },
+    {
+      "name": "Actionability",
+      "weight": 0.2,
+      "description": "Next steps include owners, due dates, and clear deliverables; open questions have assigned follow-up."
+    },
+    {
+      "name": "Manufacturability",
+      "weight": 0.2,
+      "description": "Process flow, tooling, and quality plans align with stainless sheet-metal fabrication reality."
+    },
+    {
+      "name": "Risk & Mitigation",
+      "weight": 0.15,
+      "description": "Critical risks have quantified impact and mitigations tied to accountable owners."
+    }
+  ],
+  "minimum_fixes": 3,
+  "scoring_notes": [
+    "Scores below 60 indicate the plan is not ready for customer review.",
+    "Any UNKNOWN field should trigger at least one fix recommendation.",
+    "Missing risk mitigations or timelines cap the score at 75."
+  ]
+}

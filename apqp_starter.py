@@ -199,6 +199,18 @@ def load_env():
 # --------------------
 # Confluence helpers (Cloud REST API v1 + v2)
 # --------------------
+def get_space_id_by_key(base, email, token, space_key: str):
+    """Get spaceId from space key using v2 API"""
+    url = f"{base}/wiki/api/v2/spaces"
+    resp = requests.get(url, params={"keys": space_key},
+                        auth=HTTPBasicAuth(email, token))
+    resp.raise_for_status()
+    data = resp.json()
+    results = data.get("results", [])
+    if not results:
+        raise ValueError(f"Space with key '{space_key}' not found")
+    return results[0]["id"]
+
 def cql_search(base, email, token, cql: str, limit=50):
     """v1 search with CQL"""
     url = f"{base}/wiki/rest/api/search"
@@ -230,20 +242,25 @@ def get_page_storage(base, email, token, page_id: str):
     return title, text
 
 def create_confluence_page(base, email, token, space_key, parent_id, title, storage_html):
-    """Create a new Confluence page using v2 API"""
+    """Create a new Confluence page using v2 API with spaceId (required)"""
+    # Get spaceId from space key (required for v2 API)
+    space_id = get_space_id_by_key(base, email, token, space_key)
+    
     url = f"{base}/wiki/api/v2/pages"
     payload = {
-        "spaceId": None,  # optional, parentId is enough
-        "parentId": int(parent_id) if parent_id else None,
-        "title": title,
+        "spaceId": space_id,  # Required
         "status": "current",
+        "title": title,
         "body": {
-            "storage": {
-                "value": storage_html,
-                "representation": "storage"
-            }
+            "representation": "storage",
+            "value": storage_html
         }
     }
+    
+    # Add parentId if provided
+    if parent_id:
+        payload["parentId"] = parent_id
+    
     resp = requests.post(url, json=payload,
                          auth=HTTPBasicAuth(email, token))
     resp.raise_for_status()
@@ -276,7 +293,7 @@ def render_plan_md(plan: dict):
 # --------------------
 # Main flow
 # --------------------
-def run(project_name, local_files, confluence_cql, meeting_transcript=None, publish_to_confluence=False):
+def run(project_name, local_files, confluence_cql, meeting_transcripts=None, publish_to_confluence=False):
     cfg = load_env()
     
     if not cfg["openai_key"]:
@@ -311,15 +328,17 @@ def run(project_name, local_files, confluence_cql, meeting_transcript=None, publ
         except Exception as e:
             print(f"  ⚠ Confluence error: {e}")
     
-    # 2) Add meeting transcript if provided
-    if meeting_transcript:
-        print(f"[Meeting] Adding transcript from: {meeting_transcript}")
-        tf = tempfile.NamedTemporaryFile(delete=False, suffix=".txt", mode='w', encoding='utf-8')
-        with open(meeting_transcript, 'r', encoding='utf-8') as src:
-            tf.write(f"# Meeting Transcript\n\n{src.read()}")
-        tf.flush()
-        tf.close()
-        tmp_files.append(tf.name)
+    # 2) Add meeting transcripts if provided
+    if meeting_transcripts:
+        for meeting_path in meeting_transcripts:
+            print(f"[Meeting] Adding transcript from: {meeting_path}")
+            tf = tempfile.NamedTemporaryFile(delete=False, suffix=".txt", mode='w', encoding='utf-8')
+            with open(meeting_path, 'r', encoding='utf-8') as src:
+                filename = Path(meeting_path).name
+                tf.write(f"# Meeting Transcript: {filename}\n\n{src.read()}")
+            tf.flush()
+            tf.close()
+            tmp_files.append(tf.name)
 
     all_inputs += tmp_files
     if not all_inputs:
@@ -414,44 +433,67 @@ SOURCE DOCUMENTS:
     print(f"  ✓ Risks: {len(plan_json.get('risks', []))}")
     print(f"  ✓ Open Questions: {len(plan_json.get('open_questions', []))}")
 
-    # 5) Render Markdown
+    # 5) Render Markdown and save outputs to ./outputs/
     md = render_plan_md(plan_json)
     
-    # Create outputs directory
-    out_dir = Path("outputs")
+    # Create outputs directory if it doesn't exist
+    out_dir = Path("./outputs")
     out_dir.mkdir(exist_ok=True)
     
-    out_md = out_dir / f"Strategic_Build_Plan__{project_name.replace(' ', '_')}.md"
+    # Generate filenames with project name
+    safe_project_name = project_name.replace(' ', '_').replace('/', '_').replace('\\', '_')
+    out_md = out_dir / f"Strategic_Build_Plan__{safe_project_name}.md"
+    out_json = out_dir / f"Strategic_Build_Plan__{safe_project_name}.json"
+    
+    # Write Markdown file
     out_md.write_text(md, encoding="utf-8")
     print(f"\n[Output] ✓ Wrote Markdown: {out_md.resolve()}")
     
-    # Also save JSON
-    out_json = out_dir / f"Strategic_Build_Plan__{project_name.replace(' ', '_')}.json"
+    # Write JSON file
     out_json.write_text(json.dumps(plan_json, indent=2), encoding="utf-8")
     print(f"[Output] ✓ Wrote JSON: {out_json.resolve()}")
 
     # 6) (Optional) publish to Confluence as a page
+    page_url = None
     if publish_to_confluence and cfg["confluence_base"]:
         print("\n[Confluence] Publishing to Confluence...")
-        try:
-            # Convert Markdown to basic HTML (simple approach)
-            storage_html = "<p>" + "</p><p>".join(line for line in md.splitlines()) + "</p>"
-            title = f"Strategic Build Plan — {project_name}"
-            res = create_confluence_page(
-                cfg["confluence_base"],
-                cfg["confluence_email"],
-                cfg["confluence_token"],
-                cfg["confluence_space"],
-                cfg["confluence_parent"],
-                title,
-                storage_html
-            )
-            page_id = res.get('id', '?')
-            page_url = f"{cfg['confluence_base']}/wiki/spaces/{cfg['confluence_space']}/pages/{page_id}"
-            print(f"  ✓ Created page: {res.get('title','(unknown)')}")
-            print(f"  ✓ URL: {page_url}")
-        except Exception as e:
-            print(f"  ⚠ Confluence publish error: {e}")
+        if not cfg["confluence_space"]:
+            print("  ⚠ Warning: CONFLUENCE_SPACE_KEY not set, skipping publish")
+        else:
+            try:
+                # Convert Markdown to basic HTML (simple approach)
+                storage_html = "<p>" + "</p><p>".join(line for line in md.splitlines()) + "</p>"
+                title = f"Strategic Build Plan — {project_name}"
+                
+                # Create page with spaceId (required) and parentId (optional)
+                res = create_confluence_page(
+                    cfg["confluence_base"],
+                    cfg["confluence_email"],
+                    cfg["confluence_token"],
+                    cfg["confluence_space"],
+                    cfg["confluence_parent"],
+                    title,
+                    storage_html
+                )
+                
+                page_id = res.get('id', '?')
+                # Build page URL from response
+                page_links = res.get('_links', {})
+                web_ui = page_links.get('webui', '')
+                if web_ui:
+                    page_url = f"{cfg['confluence_base']}{web_ui}"
+                else:
+                    # Fallback URL construction
+                    page_url = f"{cfg['confluence_base']}/wiki/spaces/{cfg['confluence_space']}/pages/{page_id}"
+                
+                print(f"  ✓ Created page: {res.get('title','(unknown)')}")
+                print(f"  ✓ Page ID: {page_id}")
+                print(f"  ✓ URL: {page_url}")
+                
+            except Exception as e:
+                print(f"  ⚠ Confluence publish error: {e}")
+                import traceback
+                traceback.print_exc()
 
     # Cleanup temp files
     for f in tmp_files:
@@ -463,6 +505,8 @@ SOURCE DOCUMENTS:
     print(f"\n{'='*70}")
     print("  ✅ Strategic Build Plan Complete!")
     print(f"{'='*70}\n")
+    
+    return page_url  # Return the Confluence page URL if published
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(
@@ -488,7 +532,7 @@ if __name__ == "__main__":
     p.add_argument("--project", required=True, help="Project/part or PO identifier")
     p.add_argument("--files", nargs="*", default=[], help="Local files to include (PDF, DOCX, TXT, etc.)")
     p.add_argument("--cql", default="", help="Confluence CQL query for customer + family-of-parts pages")
-    p.add_argument("--meeting", help="Path to meeting transcript text file")
+    p.add_argument("--meeting", nargs="*", default=[], help="Path(s) to meeting transcript text file(s)")
     p.add_argument("--publish", action="store_true", help="Publish plan to Confluence")
     args = p.parse_args()
     

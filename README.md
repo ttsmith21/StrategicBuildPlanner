@@ -253,10 +253,57 @@ Edit the `JINJA_TEMPLATE` for custom Markdown formatting.
 - [ ] Auto-labeling of published pages
 
 ### Phase 3 (Advanced)
+- [x] **FastAPI REST API Server** - Service facade over CLI (`server/main.py`)
+- [x] **API Endpoints**: `/ingest`, `/draft`, `/publish`, `/meeting/apply`, `/qa/grade`
+- [x] **Interactive API Docs** - Swagger UI at `/docs`
 - [ ] Realtime API for live meeting assistance
 - [ ] Audio transcription (Whisper API)
 - [ ] Drawing symbol extraction (vision models)
-- [ ] Web dashboard (FastAPI + React)
+- [ ] Web dashboard (React frontend)
+
+---
+
+## 🌐 FastAPI Server (NEW!)
+
+### Run the API Server
+
+```powershell
+# Start server with auto-reload
+python run_server.py
+
+# Server runs at: http://localhost:8001
+# API Docs: http://localhost:8001/docs
+```
+
+### Available Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check |
+| `/ingest` | POST | Upload files, create session |
+| `/draft` | POST | Generate Strategic Build Plan |
+| `/publish` | POST | Publish plan to Confluence |
+| `/meeting/apply` | POST | Apply meeting notes to plan |
+| `/qa/grade` | POST | Grade plan quality (5 dimensions) |
+| `/session/{id}` | DELETE | Cleanup session |
+
+### Quick API Example
+
+```bash
+# 1. Upload files
+curl -X POST http://localhost:8001/ingest \
+  -F "files=@inputs/drawing.pdf" \
+  -F "customer=ACME Corp"
+
+# 2. Generate plan (use session_id from step 1)
+curl -X POST http://localhost:8001/draft \
+  -H "Content-Type: application/json" \
+  -d '{"session_id":"YOUR_SESSION_ID","project_name":"ACME Bracket"}'
+
+# 3. View in browser: http://localhost:8001/docs
+```
+
+**See `server/README.md` for complete API documentation.**
 
 ---
 

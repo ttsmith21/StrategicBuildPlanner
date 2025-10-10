@@ -58,3 +58,5 @@ meetings/*
 *.pdf
 *.docx
 *.log
+node_modules/
+web/node_modules/

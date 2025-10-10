@@ -1,0 +1,12 @@
+{
+  "title": "Laser-Cut Bracket Cell",
+  "highlights": [
+    "Complete APQP coverage with quantified tolerances and takt time (42 sec).",
+    "Risks tied to mitigation owners with due dates within 2 weeks of pilot run.",
+    "Meeting decisions captured as TODOs with Asana task IDs."
+  ],
+  "fix_templates": [
+    "Clarify UNKNOWN statements by referencing drawing rev data.",
+    "Assign owners and due dates to any new risk added during meetings."
+  ]
+}

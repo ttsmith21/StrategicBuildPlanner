@@ -1,0 +1,12 @@
+{
+  "title": "304 Stainless Housing",
+  "highlights": [
+    "Detailed weld sequencing with fixturing concept sketches referenced.",
+    "Quality plan specifies CMM sampling (5/lot) and PFMEA linkage.",
+    "Cost levers include reusable fixture concept and nesting yield improvement."
+  ],
+  "fix_templates": [
+    "Add supplier readiness checks when long-lead outsource steps exist.",
+    "Document heat-treat or finish partners when called out in the drawing."
+  ]
+}

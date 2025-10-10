@@ -1,0 +1,12 @@
+{
+  "title": "Food-Service Tub Assembly",
+  "highlights": [
+    "Materials and finishes traceability mapped to regulatory requirements (FDA, NSF).",
+    "Open questions tracked with customer contact names and decision dates.",
+    "Timeline aligns long-lead tooling orders with PPAP milestones."
+  ],
+  "fix_templates": [
+    "Ensure sanitation validation steps are referenced when surface finish is critical.",
+    "Escalate any missing supplier certs before pilot build date."
+  ]
+}
