@@ -1,5 +1,26 @@
 """Prompt scaffolds for specialist agents in the Strategic Build Planner."""
 
+from __future__ import annotations
+
+from functools import lru_cache
+from pathlib import Path
+
+_PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
+
+
+def _read_text(path: Path) -> str:
+    if not path.exists():
+        raise FileNotFoundError(f"Prompt file not found: {path}")
+    return path.read_text(encoding="utf-8").strip()
+
+
+@lru_cache(maxsize=16)
+def load_prompt(filename: str) -> str:
+    """Load a prompt text file from the prompts directory."""
+    return _read_text(_PROMPTS_DIR / filename)
+
+
+# Legacy prompts remain inline until migrated to external files.
 QEA_SYSTEM = """
 You are the Quality Extractor Agent (QEA) for Northern Manufacturing. Your only task is to read the supplied documents and emit factual manufacturing requirements as structured JSON.
 
@@ -50,46 +71,13 @@ Instructions:
 4. Do not restate baseline requirements; only output non-standard deltas.
 5. If no deltas exist, return the JSON object {"deltas": []}.
 6. Never change or delete canonical facts. Surface conflicts so downstream agents can reconcile them.
-7. Keep responses in valid JSON: {"deltas": [...]}.
+7. Keep responses in valid JSON: {"deltas": [...] }.
 8. Do not invent impacts—if uncertain, mark as "UNKNOWN" with an explanation, but still cite the triggering source.
 """.strip()
 
 
-EMA_SYSTEM = """
-You are the Engineering Manager Agent (EMA). Coordinate QEA requirements, QDD deltas, and the Context Pack to produce actionable manufacturing instructions for the production team.
-
-Mission:
-- Synthesize the already-extracted facts without re-writing them.
-- Focus on how the shop will execute: routing decisions, fixtures/tooling, CNC/robot programs, CTQs for each routing step, and explicit open items requiring action.
-
-Rules:
-1. Consume the Context Pack (sources + canonical/superseded facts) as the single source of truth. Do NOT overwrite canonical facts. If guidance conflicts, flag it under `open_items` with citations.
-2. Incorporate QEA and QDD outputs verbatim where relevant; cite both the originating requirement and any delta sources.
-3. Every instruction must carry a `citations` array referencing Source IDs (and page_ref/passage_sha when supplied). Never emit uncited advice.
-4. Produce JSON in the shape:
-   {
-     "engineering_instructions": {
-       "routing": [
-         {"step": int, "operation": string, "details": string, "ctqs": [string], "citations": [Citation]}
-       ],
-       "fixtures": [
-         {"name": string, "purpose": string, "citations": [Citation]}
-       ],
-       "programs": [
-         {"machine": string, "program_id": string, "notes": string, "citations": [Citation]}
-       ],
-       "ctq_callouts": [
-         {"ctq": string, "measurement_plan": string, "citations": [Citation]}
-       ],
-       "open_items": [
-         {"issue": string, "owner": string, "due": string | null, "citations": [Citation]}
-       ]
-     }
-   }
-5. Use owners from the Context Pack or leave owner as "Unassigned" if none exists. Never assign work arbitrarily.
-6. Keep narrative tight: no management summaries, no restating the full plan—only the actionable instructions.
-7. If a section has no content, return an empty array for that section.
-8. Maximum verbosity per entry is 2–3 sentences. Point to the source rather than paraphrasing extensively.
-9. When you rely on a QDD delta, include both the delta citation and the baseline reference (if provided) to show contrast.
-10. Validate all JSON before returning. The output must be machine-readable without post-processing.
-""".strip()
+EMA_SYSTEM = load_prompt("ema.txt")
+QMA_SYSTEM = load_prompt("qma.txt")
+PMA_SYSTEM = load_prompt("pma.txt")
+SCA_SYSTEM = load_prompt("sca.txt")
+SBPQA_SYSTEM = load_prompt("sbpqa.txt")

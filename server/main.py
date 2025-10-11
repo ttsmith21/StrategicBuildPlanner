@@ -27,9 +27,7 @@ from openai import OpenAI
 # Import shared library modules
 from .lib.schema import PLAN_SCHEMA, APQP_CHECKLIST, ContextPack, Fact, Citation, Source
 from .lib.context_pack import build_source_registry, freeze_context_pack
-from .agents.qea import run_qea
-from .agents.qdd import run_qdd
-from .agents.ema import run_ema
+from .agents.coordinator import run_specialists as coordinator_run_specialists
 from agent import StrategicBuildPlannerAgent
 from agent.tools.confluence import (
     ConfluenceConfigError,
@@ -54,6 +52,13 @@ from .lib.vectorstore import (
 # Load environment variables
 load_dotenv()
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+LOGGER = logging.getLogger(__name__)
+
 # Initialize FastAPI
 app = FastAPI(
     title="Strategic Build Planner API",
@@ -65,6 +70,10 @@ app = FastAPI(
 allowed_origins = {
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "http://localhost:5175",
+    "http://127.0.0.1:5175",
     "http://localhost:4173",
 }
 
@@ -86,7 +95,7 @@ openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Configuration
 CONFIG = {
-    "openai_model_plan": os.getenv("OPENAI_MODEL_PLAN", "o4-mini"),
+    "openai_model_plan": os.getenv("OPENAI_MODEL_PLAN", "gpt-4.1-mini"),
     "confluence_base": os.getenv("CONFLUENCE_BASE_URL"),
     "confluence_email": os.getenv("CONFLUENCE_EMAIL"),
     "confluence_token": os.getenv("CONFLUENCE_API_TOKEN"),
@@ -116,6 +125,8 @@ class IngestResponse(BaseModel):
     message: str
     file_count: int
     file_names: list[str]
+    vector_store_id: str
+    context_pack: ContextPack
 
 
 class DraftRequest(BaseModel):
@@ -142,10 +153,10 @@ class AgentsRunRequest(BaseModel):
 
 class AgentsRunResponse(BaseModel):
     plan_json: dict
-    deltas: list[dict]
-    ema_patch: dict
+    plan_markdown: str
     tasks_suggested: list[dict]
     qa: dict
+    conflicts: list[dict]
 
 
 class PublishRequest(BaseModel):
@@ -564,17 +575,24 @@ def _build_candidate_facts(plan_json: dict, sources: list[Source]) -> list[Fact]
             )
         )
 
+    materials_claim = plan_json.get("materials_finishes")
+    if isinstance(materials_claim, dict):
+        materials_claim = json.dumps(materials_claim, ensure_ascii=False)
     add_fact(
         "Materials",
-        plan_json.get("materials_finishes"),
+        materials_claim,
         authority="mandatory",
         precedence=1,
         preferred_kinds=["drawing", "customer_spec", "itp"],
     )
 
     ctqs = plan_json.get("ctqs")
+    if not isinstance(ctqs, list) or not ctqs:
+        quality_plan_section = plan_json.get("quality_plan")
+        if isinstance(quality_plan_section, dict):
+            ctqs = quality_plan_section.get("ctqs")
     if isinstance(ctqs, list) and ctqs:
-        first_ctq = ctqs[0] if isinstance(ctqs[0], str) else json.dumps(ctqs[0])
+        first_ctq = ctqs[0] if isinstance(ctqs[0], str) else json.dumps(ctqs[0], ensure_ascii=False)
         add_fact(
             "CTQs",
             first_ctq,
@@ -583,9 +601,28 @@ def _build_candidate_facts(plan_json: dict, sources: list[Source]) -> list[Fact]
             preferred_kinds=["itp", "drawing", "customer_spec"],
         )
 
+    quality_plan_value = plan_json.get("quality_plan")
+    if isinstance(quality_plan_value, dict):
+        snippets: list[str] = []
+        ctq_list = quality_plan_value.get("ctqs") or []
+        if ctq_list:
+            snippets.append("CTQs: " + "; ".join(str(item) for item in ctq_list))
+        inspection_levels = quality_plan_value.get("inspection_levels") or []
+        if inspection_levels:
+            snippets.append("Inspection: " + ", ".join(str(item) for item in inspection_levels))
+        passivation = quality_plan_value.get("passivation")
+        if passivation:
+            snippets.append(f"Passivation: {passivation}")
+        hold_points = quality_plan_value.get("hold_points") or []
+        if hold_points:
+            snippets.append("Hold points: " + "; ".join(str(item) for item in hold_points))
+        quality_plan_summary = " | ".join(snippets)
+    else:
+        quality_plan_summary = quality_plan_value
+
     add_fact(
         "Quality Plan",
-        plan_json.get("quality_plan"),
+        quality_plan_summary,
         authority="reference",
         precedence=4,
         preferred_kinds=["generic_spec", "lessons_learned", "supplier_qm"],
@@ -602,92 +639,6 @@ def _build_candidate_facts(plan_json: dict, sources: list[Source]) -> list[Fact]
         )
 
     return facts
-
-
-def _requirements_to_facts(requirements: list[dict[str, Any]], *, start_index: int = 1) -> list[Fact]:
-    facts: list[Fact] = []
-    for idx, requirement in enumerate(requirements, start=start_index):
-        citation_data = requirement.get("citation", {})
-        try:
-            citation = Citation(
-                source_id=str(citation_data.get("source_id")),
-                page_ref=citation_data.get("page_ref"),
-                passage_sha=citation_data.get("passage_sha"),
-            )
-        except Exception:
-            continue
-
-        authority = requirement.get("authority")
-        precedence = requirement.get("precedence_rank")
-        applies_if = requirement.get("applies_if")
-        fact = Fact(
-            id=f"qea-{idx}",
-            claim=str(requirement.get("requirement", "")).strip(),
-            topic=str(requirement.get("topic", "Uncategorized")),
-            citation=citation,
-            authority=authority or "reference",
-            precedence_rank=int(precedence) if isinstance(precedence, int) else 99,
-            applies_if=applies_if if isinstance(applies_if, dict) else None,
-            status="proposed",
-            confidence_model=requirement.get("confidence"),
-        )
-        if not fact.claim:
-            continue
-        facts.append(fact)
-    return facts
-
-
-def _merge_plan_patch(plan: dict, patch: dict) -> dict:
-    merged = deepcopy(plan)
-    instructions = patch.get("engineering_instructions") if isinstance(patch, dict) else None
-    if isinstance(instructions, dict):
-        merged["engineering_instructions"] = instructions
-    return merged
-
-
-def _delta_to_task(delta: dict) -> dict:
-    topic = str(delta.get("topic", "General"))
-    delta_type = str(delta.get("delta_type", "additional"))
-    summary = delta.get("delta_summary", "")
-    recommended = delta.get("recommended_action", "Review with quality engineering.")
-    cost_impact = delta.get("cost_impact", "UNKNOWN")
-    schedule_impact = delta.get("schedule_impact", "UNKNOWN")
-
-    owner_hint = "ENG"
-    topic_lower = topic.lower()
-    if any(keyword in topic_lower for keyword in ["inspection", "ctq", "quality", "ppap"]):
-        owner_hint = "QA"
-    elif any(keyword in topic_lower for keyword in ["buy", "vendor", "supplier", "procure"]):
-        owner_hint = "BUY"
-    elif any(keyword in topic_lower for keyword in ["schedule", "timeline", "due"]):
-        owner_hint = "SCHED"
-    elif any(keyword in topic_lower for keyword in ["legal", "contract", "nda", "terms"]):
-        owner_hint = "LEGAL"
-
-    priority = "High" if cost_impact == "HIGH" or schedule_impact == "HIGH" else "Medium"
-
-    return {
-        "name": f"Delta: {topic}",
-        "notes": f"{delta_type.title()} requirement: {summary}\nAction: {recommended}",
-        "owner_hint": owner_hint,
-        "priority": priority,
-        "source_id": delta.get("citation", {}).get("source_id"),
-        "cost_impact": cost_impact,
-        "schedule_impact": schedule_impact,
-    }
-
-
-def _empty_engineering_patch() -> dict:
-    return {
-        "engineering_instructions": {
-            "routing": [],
-            "fixtures": [],
-            "programs": [],
-            "ctqs_for_routing": [],
-            "open_items": [],
-        }
-    }
-
 
 @lru_cache(maxsize=1)
 def _load_eval_assets() -> tuple[Dict[str, Any], List[Dict[str, Any]]]:
@@ -866,14 +817,15 @@ async def get_confluence_page_summary(page_id: str):
 @app.post("/ingest", response_model=IngestResponse)
 async def ingest_files(
     files: list[UploadFile] = File(...),
+    project_name: str = Form(...),
     customer: Optional[str] = Form(None),
     family: Optional[str] = Form(None),
     cql: Optional[str] = Form(None)
 ):
     """
-    Upload files and create a session for plan generation.
+    Upload files, create vector store, and build context pack.
     
-    Returns a session ID that can be used in /draft endpoint.
+    Returns everything needed to run specialist agents directly - no draft required!
     """
     session_id = str(uuid.uuid4())
     session_dir = get_temp_dir() / session_id
@@ -892,22 +844,57 @@ async def ingest_files(
         file_names.append(filename)
         file_paths.append(str(file_path))
     
-    # Store session data
-    sessions[session_id] = {
-        "customer": customer,
-        "family": family,
-        "cql": cql,
-        "file_paths": file_paths,
-        "file_names": file_names,
-        "created_at": datetime.now().isoformat()
-    }
-    
-    return IngestResponse(
-        session_id=session_id,
-        message=f"Uploaded {len(files)} file(s) successfully",
-        file_count=len(files),
-        file_names=file_names
-    )
+    try:
+        # Create vector store immediately (required for specialist agents)
+        vector_store_id, source_file_names = create_vector_store(
+            openai_client,
+            project_name,
+            file_paths
+        )
+        
+        # Build context pack (required for specialist agents)
+        uploaded_entries = _build_uploaded_source_entries({"file_names": file_names, "file_paths": file_paths})
+        confluence_entries = []
+        if cql or family:
+            try:
+                confluence_entries = _maybe_fetch_family_pages({"cql": cql, "family": family})
+            except Exception as e:
+                LOGGER.warning(f"Failed to fetch Confluence pages: {e}")
+        
+        sources = build_source_registry(uploaded_entries, confluence_entries)
+        project_context: Dict[str, Any] = {
+            "name": project_name,
+            "customer": customer,
+            "family": family,
+            "generated_at": datetime.now().isoformat(),
+            "vector_store_id": vector_store_id,
+        }
+        context_pack = freeze_context_pack(sources, [], project_context)
+        
+        # Store session data with vector store and context pack
+        sessions[session_id] = {
+            "project_name": project_name,
+            "customer": customer,
+            "family": family,
+            "cql": cql,
+            "file_paths": file_paths,
+            "file_names": file_names,
+            "vector_store_id": vector_store_id,
+            "context_pack": context_pack.model_dump(),
+            "created_at": datetime.now().isoformat()
+        }
+        
+        return IngestResponse(
+            session_id=session_id,
+            message=f"Uploaded {len(files)} file(s) and created vector store successfully",
+            file_count=len(files),
+            file_names=file_names,
+            vector_store_id=vector_store_id,
+            context_pack=context_pack
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ingest failed: {str(e)}")
 
 
 @app.post("/draft", response_model=DraftResponse)
@@ -983,79 +970,69 @@ async def draft_plan(request: DraftRequest):
 
 @app.post("/agents/run", response_model=AgentsRunResponse)
 async def run_specialist_agents(request: AgentsRunRequest):
+    """
+    Run specialist agents to build or refine a Strategic Build Plan.
+    
+    Can work in two modes:
+    1. Build from scratch: Provide session_id after /ingest (no draft needed!)
+    2. Refine existing: Provide plan_json to refine an existing draft
+    """
+    LOGGER.info("=== /agents/run called ===")
+    LOGGER.info("Request: session_id=%s, has_vector_store=%s, has_context_pack=%s, has_plan_json=%s",
+                request.session_id, bool(request.vector_store_id), bool(request.context_pack), bool(request.plan_json))
+    
     session: Optional[dict] = None
     if request.session_id:
         session = sessions.get(request.session_id)
-        if session is None:
-            raise HTTPException(status_code=404, detail="Session not found")
+        # If session not found but we have direct parameters, just log a warning and continue
+        if session is None and (not request.vector_store_id or not request.context_pack):
+            LOGGER.warning("Session %s not found and required parameters missing", request.session_id)
+            raise HTTPException(status_code=404, detail="Session not found and required parameters missing")
 
     vector_store_id = request.vector_store_id or (session.get("vector_store_id") if session else None)
     plan_json_input = request.plan_json or (deepcopy(session.get("plan_json")) if session else None)
     context_pack_input = request.context_pack or (session.get("context_pack") if session else None)
 
-    if not vector_store_id or not plan_json_input or not context_pack_input:
-        raise HTTPException(status_code=400, detail="vector_store_id, plan_json, and context_pack are required")
+    if not vector_store_id or context_pack_input is None:
+        raise HTTPException(status_code=400, detail="vector_store_id and context_pack are required (run /ingest first)")
+    
+    # If no plan_json provided, create an empty base structure for specialists to fill
+    if plan_json_input is None:
+        project_name = session.get("project_name", "Unknown Project") if session else "Unknown Project"
+        customer = session.get("customer", "") if session else ""
+        family = session.get("family", "") if session else ""
+        
+        plan_json_input = {
+            "project": project_name,
+            "customer": customer,
+            "revision": "A",
+            "summary": "",
+            "requirements": [],
+            "process_flow": "",
+            "tooling_fixturing": "",
+            "materials_finishes": "",
+            "ctqs": [],
+            "risks": [],
+            "open_questions": [],
+            "cost_levers": [],
+            "pack_ship": "",
+            "source_files_used": [],
+        }
 
     try:
         context_pack_model = ContextPack.model_validate(context_pack_input)
-    except Exception as exc:
+    except Exception as exc:  # pragma: no cover - defensive handling
         raise HTTPException(status_code=400, detail=f"Invalid context pack payload: {exc}") from exc
 
-    plan_json = deepcopy(plan_json_input)
+    coordinator_result = coordinator_run_specialists(plan_json_input, context_pack_model, vector_store_id)
 
-    # Run QEA to augment context facts
-    try:
-        qea_requirements = run_qea(vector_store_id, context_pack_model)
-    except Exception as exc:
-        LOGGER.error("QEA invocation failed: %s", exc)
-        qea_requirements = []
-
-    if qea_requirements:
-        existing_keys: Set[Tuple[str, str]] = {
-            (fact.topic, fact.claim) for fact in context_pack_model.facts
-        }
-        start_index = len(existing_keys) + 1
-        new_facts_raw = _requirements_to_facts(qea_requirements, start_index=start_index)
-        new_facts: list[Fact] = []
-        for fact in new_facts_raw:
-            key = (fact.topic, fact.claim)
-            if key in existing_keys:
-                continue
-            new_facts.append(fact)
-            existing_keys.add(key)
-
-        if new_facts:
-            combined = list(context_pack_model.facts) + new_facts
-            context_pack_model = context_pack_model.model_copy(update={"facts": combined})
-
-    # Run QDD for deltas
-    try:
-        deltas = run_qdd(context_pack_model)
-    except Exception as exc:
-        LOGGER.error("QDD invocation failed: %s", exc)
-        deltas = []
-
-    tasks_suggested = [_delta_to_task(dict(delta)) for delta in deltas]
-
-    # Run EMA for engineering instructions
-    try:
-        ema_patch = run_ema(plan_json, context_pack_model, vector_store_id)
-    except Exception as exc:
-        LOGGER.error("EMA invocation failed: %s", exc)
-        ema_patch = _empty_engineering_patch()
-
-    plan_json = _merge_plan_patch(plan_json, ema_patch)
-
-    # Grade plan quality
-    try:
-        rubric, gold_examples = _load_eval_assets()
-        grade_result = planner_agent.evaluate_plan(plan_json, rubric, gold_examples)
-        score = float(grade_result.get("score", 0.0))
-    except Exception as exc:  # pragma: no cover - defensive handling
-        LOGGER.error("QA grading failed inside agents run: %s", exc)
-        score = 0.0
-
-    qa_payload = {"score": score, "blocked": score < 85}
+    plan_json = coordinator_result.get("plan_json", {})
+    tasks_suggested = coordinator_result.get("tasks_suggested", [])
+    qa_payload = coordinator_result.get("qa", {})
+    conflicts = coordinator_result.get("conflicts", [])
+    
+    # Render markdown from the plan JSON
+    plan_markdown = render_plan_md(plan_json)
 
     if session is not None:
         session["plan_json"] = deepcopy(plan_json)
@@ -1063,10 +1040,10 @@ async def run_specialist_agents(request: AgentsRunRequest):
 
     return AgentsRunResponse(
         plan_json=plan_json,
-        deltas=[dict(delta) for delta in deltas],
-        ema_patch=ema_patch,
+        plan_markdown=plan_markdown,
         tasks_suggested=tasks_suggested,
         qa=qa_payload,
+        conflicts=conflicts,
     )
 
 

@@ -196,33 +196,27 @@ Body:
 
 Response:
 {
-  "plan_json": { /* Patched plan JSON */ },
-  "deltas": [
-    {
-      "topic": "Materials",
-      "delta_type": "non_standard",
-      "recommended_action": "Escalate to quality for disposition",
-      "owner_hint": "QA"
-    }
-  ],
-  "ema_patch": {
-    "engineering_instructions": {
-      "routing": [...]
-    }
-  },
+  "plan_json": { /* Patched plan JSON with quality/purchasing/schedule/engineering sections */ },
   "tasks_suggested": [
-    { "name": "Resolve open question #1", "owner_hint": "ENG" }
+    { "name": "Kick off PPAP control plan", "owner_hint": "QA", "fingerprint": "..." }
   ],
   "qa": {
-    "score": 84.5,
-    "blocked": true,
-    "summary": "Finish cell missing passivation plan",
-    "fixes": ["Specify passivation vendor or mark none"]
-  }
+    "score": 91.2,
+    "blocked": false,
+    "reasons": ["All CTQs traced to control plan"],
+    "fixes": ["Add inspection level callout for Op30"]
+  },
+  "conflicts": [
+    {
+      "topic": "Material Finish",
+      "issue": "Quality requests passivation hold while purchasing lists vendor lead > 3 weeks",
+      "citations": [{ "source_id": "drawing-102A" }]
+    }
+  ]
 }
 ```
 
-This endpoint orchestrates QEA, QDD, and EMA agents using the context pack precedence matrix. Plan-level fingerprints and owner buckets (ENG/QA/BUY/SCHED/LEGAL) are returned so the web UI can group follow-up work. When `qa.blocked` is true the frontend disables Confluence publishing.
+The coordinator now runs the Quality (QMA), Purchasing (PMA), Scheduler (SCA), Engineering (EMA), and QA gate (SBP-QA) specialists sequentially. Each agent patches only the sections it owns, while the coordinator deduplicates follow-on tasks and surfaces cross-discipline conflicts. When `qa.blocked` is true the frontend disables Confluence publishing until the blocking fixes are addressed.
 
 ### 8. Create Asana Tasks
 ```bash
@@ -416,7 +410,7 @@ function StrategicBuildPlanner() {
 ```env
 # Required
 OPENAI_API_KEY=sk-***
-OPENAI_MODEL_PLAN=o4-mini
+OPENAI_MODEL_PLAN=gpt-4.1-mini
 
 # Optional (for /publish endpoint)
 CONFLUENCE_BASE_URL=https://your-domain.atlassian.net

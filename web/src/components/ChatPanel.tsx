@@ -1,5 +1,6 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { isAxiosError } from "axios";
 import { api } from "../api";
 import { AsanaProjectSummary, ChatMessage, SpecialistAgentKey } from "../types";
 
@@ -97,7 +98,11 @@ export function ChatPanel({
 
   const debouncedProjectQuery = useDebouncedValue(projectSearch);
 
-  const { data: projectResults = [], isFetching: projectLoading } = useQuery<AsanaProjectSummary[]>(
+  const {
+    data: projectResults = [],
+    isFetching: projectLoading,
+    error: projectError,
+  } = useQuery<AsanaProjectSummary[]>(
     {
       queryKey: ["asana-projects", debouncedProjectQuery],
       queryFn: async () => {
@@ -113,6 +118,19 @@ export function ChatPanel({
       staleTime: 60_000,
     }
   );
+
+  const projectErrorMessage = useMemo(() => {
+    if (!projectError) {
+      return null;
+    }
+    if (isAxiosError(projectError)) {
+      const detail = projectError.response?.data?.detail;
+      if (typeof detail === "string" && detail.trim().length > 0) {
+        return detail;
+      }
+    }
+    return "Unable to search Asana projects. Check your Asana credentials in the server .env.";
+  }, [projectError]);
 
   const filteredProjects = useMemo(() => {
     if (!projectResults || projectResults.length === 0) {
@@ -229,6 +247,11 @@ export function ChatPanel({
                   )}
                 </button>
               ))}
+          </div>
+        )}
+        {projectErrorMessage && (
+          <div className="error-banner" style={{ marginTop: "0.5rem" }}>
+            Asana search error: {projectErrorMessage}
           </div>
         )}
         {selectedAsanaProject && (

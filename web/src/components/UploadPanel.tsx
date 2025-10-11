@@ -110,7 +110,7 @@ export function UploadPanel({
       });
       return data.length > 0 ? data : recentCustomers;
     },
-    enabled: debouncedCustomer.trim().length > 1,
+    enabled: debouncedCustomer.trim().length >= 1,
     initialData: recentCustomers,
   });
 
@@ -125,7 +125,7 @@ export function UploadPanel({
       });
       return data.length > 0 ? data : recentFamilies;
     },
-    enabled: debouncedFamily.trim().length > 1,
+    enabled: debouncedFamily.trim().length >= 1,
     initialData: recentFamilies,
   });
 

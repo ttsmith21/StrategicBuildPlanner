@@ -9,7 +9,6 @@ import { Toast, ToastContainer } from "./components/ToastContainer";
 import {
   AsanaTaskSummary,
   ChatMessage,
-  DraftResponseData,
   IngestResponseData,
   MeetingApplyResponseData,
   PlanJson,
@@ -284,13 +283,17 @@ export default function App() {
   const ingestMutation = useMutation<IngestResponseData, Error, FileList>({
     mutationFn: async (files: FileList) => {
       if (!meta.projectName.trim()) {
-        throw new Error("Project name is required before drafting.");
+        throw new Error("Project name is required before ingesting files.");
       }
 
       const formData = new FormData();
       Array.from(files).forEach((file) => {
         formData.append("files", file);
       });
+      // Required: project_name for vector store creation
+      formData.append("project_name", meta.projectName);
+      
+      // Optional metadata
       if (meta.customer) {
         formData.append("customer", meta.customer);
       }
@@ -304,12 +307,23 @@ export default function App() {
       return data;
     },
     onSuccess: (data) => {
+      // Reset state FIRST, before setting new values
+      resetForNewPlan();
+      
       setSessionId(data.session_id);
       setUploadedFiles(data.file_names);
-      resetForNewPlan();
+      
+      // New: Store vector_store_id and context_pack from /ingest
+      if (data.vector_store_id) {
+        setVectorStoreId(data.vector_store_id);
+      }
+      if (data.context_pack) {
+        setContextPack(data.context_pack);
+      }
+      
       setStatusMessage(data.message);
       setError(null);
-      pushToast("success", data.message || "Session created.");
+      pushToast("success", data.message || "Session created. Ready to run specialist agents!");
     },
     onError: (err: Error) => {
       setError(err.message || "Failed to ingest files.");
@@ -334,50 +348,10 @@ export default function App() {
     [setQaBlocked, setQaResult]
   );
 
-  const draftMutation = useMutation<DraftResponseData, Error>({
-    mutationFn: async () => {
-      if (!sessionId) {
-        throw new Error("Upload documents first to create a session.");
-      }
-      const { data } = await api.post<DraftResponseData>("/draft", {
-        session_id: sessionId,
-        project_name: meta.projectName,
-        customer: meta.customer || undefined,
-        family: meta.family || undefined,
-      });
-      return data;
-    },
-    onSuccess: (data) => {
-      setPlanJson(data.plan_json);
-      setPlanMarkdown(data.plan_markdown);
-      setVectorStoreId(data.vector_store_id);
-      setContextPack(data.context_pack);
-      setAgentStatuses(INITIAL_AGENT_STATUSES);
-      setQaBlocked(false);
-      setQaResult(null);
-      setMessages((prev: ChatMessage[]) => [
-        ...prev,
-        {
-          id: makeId(),
-          role: "assistant",
-          content: "Draft completed — review the plan preview for Markdown and JSON outputs.",
-          timestamp: now(),
-        },
-      ]);
-      setStatusMessage(`Drafted plan from ${uploadedFiles.length} source file(s).`);
-      setError(null);
-      pushToast("success", "Draft completed.");
-    },
-    onError: (err: Error) => {
-      setError(err.message || "Draft failed.");
-      pushToast("error", err.message || "Draft failed.");
-    },
-  });
-
   const meetingApplyMutation = useMutation<MeetingApplyResponseData, Error, string>({
     mutationFn: async (transcript: string) => {
       if (!planJson) {
-        throw new Error("Draft a plan before applying meeting notes.");
+        throw new Error("Run specialist agents before applying meeting notes.");
       }
       const { data } = await api.post<MeetingApplyResponseData>("/meeting/apply", {
         plan_json: planJson,
@@ -418,7 +392,7 @@ export default function App() {
   const publishMutation = useMutation<PublishResponseData, Error>({
     mutationFn: async () => {
       if (!planJson || !planMarkdown) {
-        throw new Error("Draft the plan before publishing.");
+        throw new Error("Run specialist agents before publishing.");
       }
       const payload: Record<string, unknown> = {
         customer: planJson["customer"] ?? meta.customer,
@@ -462,7 +436,7 @@ export default function App() {
   const qaMutation = useMutation<QAGradeResponseData, Error>({
     mutationFn: async () => {
       if (!planJson) {
-        throw new Error("Draft the plan before running QA.");
+        throw new Error("Run specialist agents before running QA.");
       }
       const { data } = await api.post<QAGradeResponseData>("/qa/grade", {
         plan_json: planJson,
@@ -500,7 +474,7 @@ export default function App() {
   >({
     mutationFn: async ({ tasks, planUrl } = {}) => {
       if (!planJson) {
-        throw new Error("Draft the plan before creating tasks.");
+        throw new Error("Run specialist agents before creating tasks.");
       }
       const projectId = selectedAsanaProject?.gid || manualAsanaProjectId.trim();
       if (!projectId) {
@@ -568,13 +542,16 @@ export default function App() {
 
   const agentsMutation = useMutation<AgentsRunResponseData, Error>({
     mutationFn: async () => {
-      if (!planJson || !vectorStoreId || (!sessionId && !contextPack)) {
-        throw new Error("Draft the plan before running specialist agents.");
+      if (!vectorStoreId || (!sessionId && !contextPack)) {
+        throw new Error("Upload documents first to create a session.");
       }
       const payload: Record<string, unknown> = {
         vector_store_id: vectorStoreId,
-        plan_json: planJson,
       };
+      // Optional: include existing plan_json if available (for refinement)
+      if (planJson) {
+        payload.plan_json = planJson;
+      }
       if (sessionId) {
         payload.session_id = sessionId;
       }
@@ -590,6 +567,7 @@ export default function App() {
     },
     onSuccess: async (data) => {
       setPlanJson(data.plan_json);
+      setPlanMarkdown(data.plan_markdown);
       setSuggestedTasks(data.tasks_suggested ?? []);
       setPlanConflicts(data.conflicts ?? []);
       setStatusMessage("Specialist agents completed.");
@@ -660,7 +638,6 @@ export default function App() {
   const isLoadingAny = useMemo(
     () =>
       ingestMutation.isPending ||
-      draftMutation.isPending ||
       meetingApplyMutation.isPending ||
       publishMutation.isPending ||
       qaMutation.isPending ||
@@ -668,7 +645,6 @@ export default function App() {
       agentsMutation.isPending,
     [
       ingestMutation.isPending,
-      draftMutation.isPending,
       meetingApplyMutation.isPending,
       publishMutation.isPending,
       qaMutation.isPending,
@@ -684,11 +660,6 @@ export default function App() {
   const handleUpload = async (files: FileList) => {
     setStatusMessage(null);
     await ingestMutation.mutateAsync(files);
-  };
-
-  const handleDraft = async () => {
-    setStatusMessage(null);
-    await draftMutation.mutateAsync();
   };
 
   const handleSendMessage = async () => {
@@ -714,8 +685,8 @@ export default function App() {
       return;
     }
     setStatusMessage(null);
-    if (!planJson || !vectorStoreId || (!sessionId && !contextPack)) {
-      pushToast("error", "Draft the plan before running specialist agents.");
+    if (!vectorStoreId || (!sessionId && !contextPack)) {
+      pushToast("error", "Upload documents first to create a session.");
       return;
     }
     try {
@@ -752,6 +723,8 @@ export default function App() {
   const handleNewProjectNameChange = (value: string) => {
     setProjectNameEdited(true);
     setNewProjectName(value);
+    // Update meta.projectName so it's available for /ingest
+    setMeta((prev) => ({ ...prev, projectName: value }));
   };
 
   const handleCreateProject = async () => {
@@ -889,15 +862,9 @@ export default function App() {
       onClick: handleRunAgents,
       disabled:
         isBusy ||
-        !planJson ||
         !vectorStoreId ||
         (!sessionId && !contextPack) ||
         agentsMutation.isPending,
-    },
-    {
-      label: "Draft",
-      onClick: handleDraft,
-      disabled: isBusy || !sessionId || ingestMutation.isPending,
     },
     {
       label: "Apply Meeting Notes",

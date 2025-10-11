@@ -8,11 +8,10 @@ from dataclasses import dataclass
 from textwrap import dedent
 from typing import Any, Dict, List, Optional
 
-from openai import OpenAI
+from openai import OpenAI  # type: ignore
 
 from server.lib.schema import APQP_CHECKLIST, PLAN_SCHEMA
 from server.lib.rendering import render_plan_md
-from server.lib.vectorstore import create_vector_store, delete_vector_store
 
 PROMPT_HEADER = dedent(
     """
@@ -29,30 +28,6 @@ PROMPT_HEADER = dedent(
     - All dates in ISO format (YYYY-MM-DD).
     """
 ).strip()
-
-
-def _extract_text(response: Any) -> str:
-    """Extract textual content from a Response object."""
-    chunks: List[str] = []
-
-    if hasattr(response, "output"):
-        for item in response.output or []:
-            contents = getattr(item, "content", [])
-            for block in contents:
-                text = getattr(block, "text", None)
-                if text is None and hasattr(block, "annotations"):
-                    text = getattr(block, "value", None)
-                if text and isinstance(text, str):
-                    chunks.append(text)
-                elif text and hasattr(text, "value"):
-                    chunks.append(text.value)
-    elif hasattr(response, "content"):
-        for block in response.content or []:
-            text = getattr(block, "text", None)
-            if text and hasattr(text, "value"):
-                chunks.append(text.value)
-
-    return "\n".join(chunks).strip()
 
 
 EVAL_SCHEMA = {
@@ -82,37 +57,79 @@ class StrategicBuildPlannerAgent:
     """Agent wrapper around the OpenAI Agents SDK."""
 
     client: OpenAI
-    model: str = os.getenv("OPENAI_MODEL_PLAN", "o4-mini")
+    model: str = os.getenv("OPENAI_MODEL_PLAN", "gpt-4.1-mini")
 
-    def _create_agent(self, vector_store_id: Optional[str] = None):
-        tools: List[Dict[str, Any]] = [{"type": "file_search"}]
-        tool_resources: Dict[str, Any] = {}
+    def _run_structured_task(
+        self,
+        *,
+        instructions: str,
+        prompt: str,
+        schema: Dict[str, Any],
+        vector_store_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        beta = getattr(self.client, "beta", None)
+        if beta is None or not hasattr(beta, "assistants"):
+            raise RuntimeError("OpenAI client does not support Assistants yet. Update the openai package.")
+
+        assistants = beta.assistants
+        threads = getattr(beta, "threads", None)
+        if threads is None or not hasattr(threads, "create"):
+            raise RuntimeError("OpenAI client does not expose beta.threads API; update the openai package.")
+
+        tools: Optional[List[Dict[str, Any]]] = None
+        tool_resources: Optional[Dict[str, Any]] = None
         if vector_store_id:
+            tools = [{"type": "file_search"}]
             tool_resources = {"file_search": {"vector_store_ids": [vector_store_id]}}
 
-        agents_api: Any = getattr(self.client, "agents", None)
-        if agents_api is None:
-            raise RuntimeError("OpenAI client does not support Agents yet. Update the openai package.")
-
-        agent = agents_api.create(
+        assistant = assistants.create(
             name="Strategic Build Planner Agent",
-            instructions=PROMPT_HEADER,
+            instructions=instructions,
             model=self.model,
             tools=tools,
-            tool_resources=tool_resources or None,
+            tool_resources=tool_resources,
         )
-        return agent
 
-    def _create_response(self, agent_id: str, prompt: str, response_format: Dict[str, Any]) -> Any:
-        responses_api: Any = getattr(self.client, "responses", None)
-        if responses_api is None:
-            raise RuntimeError("OpenAI client does not support Responses yet. Update the openai package.")
+        try:
+            thread = threads.create()
+            message_api = getattr(threads, "messages", None)
+            run_api = getattr(threads, "runs", None)
+            if message_api is None or run_api is None:
+                raise RuntimeError("OpenAI client does not expose beta.threads APIs; update the openai package.")
 
-        return responses_api.create(
-            agent_id=agent_id,
-            input=[{"role": "user", "content": prompt}],
-            response_format=response_format,
-        )
+            message_api.create(
+                thread_id=thread.id,
+                role="user",
+                content=prompt,
+            )
+
+            run = run_api.create_and_poll(
+                thread_id=thread.id,
+                assistant_id=assistant.id,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": schema,
+                },
+                timeout=300,
+            )
+
+            if getattr(run, "status", None) != "completed":
+                raise RuntimeError(f"OpenAI run failed with status: {getattr(run, 'status', 'unknown')}")
+
+            messages = message_api.list(thread_id=thread.id, order="desc", limit=5)
+            for message in messages.data:
+                for content in getattr(message, "content", []):
+                    text_block = getattr(content, "text", None)
+                    value = getattr(text_block, "value", None) if text_block else None
+                    if value:
+                        return json.loads(value)
+
+            raise ValueError("OpenAI response did not contain JSON text content")
+        finally:
+            try:
+                assistants.delete(assistant.id)
+            except Exception:
+                pass
 
     def draft_plan(
         self,
@@ -121,8 +138,6 @@ class StrategicBuildPlannerAgent:
         customer: Optional[str] = None,
         family: Optional[str] = None,
     ) -> Dict[str, Any]:
-        agent = self._create_agent(vector_store_id=vector_store_id)
-
         checklist = "\n".join(f"- {item}" for item in APQP_CHECKLIST)
         user_prompt = dedent(
             f"""
@@ -143,18 +158,12 @@ class StrategicBuildPlannerAgent:
             """
         ).strip()
 
-        response = self._create_response(
-            agent_id=agent.id,
+        return self._run_structured_task(
+            instructions=PROMPT_HEADER,
             prompt=user_prompt,
-            response_format={
-                "type": "json_schema",
-                "json_schema": PLAN_SCHEMA,
-            },
+            schema=PLAN_SCHEMA,
+            vector_store_id=vector_store_id,
         )
-
-        plan_json = json.loads(_extract_text(response))
-        getattr(self.client, "agents").delete(agent.id)
-        return plan_json
 
     def apply_meeting_notes(
         self,
@@ -175,18 +184,11 @@ class StrategicBuildPlannerAgent:
             """
         ).strip()
 
-        agent = self._create_agent()
-        response = self._create_response(
-            agent_id=agent.id,
+        return self._run_structured_task(
+            instructions=PROMPT_HEADER,
             prompt=meeting_prompt,
-            response_format={
-                "type": "json_schema",
-                "json_schema": PLAN_SCHEMA,
-            },
+            schema=PLAN_SCHEMA,
         )
-        updated_plan = json.loads(_extract_text(response))
-        getattr(self.client, "agents").delete(agent.id)
-        return updated_plan
 
     def evaluate_plan(
         self,
@@ -217,18 +219,11 @@ class StrategicBuildPlannerAgent:
             """
         ).strip()
 
-        agent = self._create_agent()
-        response = self._create_response(
-            agent_id=agent.id,
+        return self._run_structured_task(
+            instructions=PROMPT_HEADER,
             prompt=prompt,
-            response_format={
-                "type": "json_schema",
-                "json_schema": EVAL_SCHEMA,
-            },
+            schema=EVAL_SCHEMA,
         )
-        result = json.loads(_extract_text(response))
-        getattr(self.client, "agents").delete(agent.id)
-        return result
 
 
 def run_draft(

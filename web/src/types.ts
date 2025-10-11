@@ -182,19 +182,13 @@ export interface ContextPack {
   precedence_policy?: string;
 }
 
-export interface DraftResponseData {
-  plan_json: PlanJson;
-  plan_markdown: string;
-  source_file_names: string[];
-  vector_store_id: string;
-  context_pack: ContextPack;
-}
-
 export interface IngestResponseData {
   session_id: string;
   message: string;
   file_count: number;
   file_names: string[];
+  vector_store_id: string;
+  context_pack: ContextPack;
 }
 
 export interface PublishResponseData {
@@ -327,6 +321,7 @@ export type SpecialistAgentKey = "qma" | "pma" | "sca" | "ema" | "sbpqa";
 
 export interface AgentsRunResponseData {
   plan_json: PlanJson;
+  plan_markdown: string;
   deltas?: AgentDelta[];
   tasks_suggested?: SuggestedTask[];
   qa?: {

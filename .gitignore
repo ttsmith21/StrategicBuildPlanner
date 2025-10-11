@@ -60,3 +60,7 @@ meetings/*
 *.log
 node_modules/
 web/node_modules/
+
+# Web build artifacts (TypeScript compiles to .js in Vite at runtime)
+web/src/**/*.js
+web/src/**/*.jsx

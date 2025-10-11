@@ -7,7 +7,7 @@ import logging
 import os
 from typing import Any, List
 
-from openai import OpenAI
+from openai import OpenAI  # type: ignore
 
 from ..lib.context_pack import ContextPack
 from .prompts import QEA_SYSTEM
@@ -150,7 +150,7 @@ def run_qea(vector_store_id: str | None, context_pack: ContextPack) -> List[dict
         return []
 
     client = _get_client()
-    model = os.getenv("OPENAI_MODEL_QEA", os.getenv("OPENAI_MODEL_PLAN", "o4-mini"))
+    model = os.getenv("OPENAI_MODEL_QEA", os.getenv("OPENAI_MODEL_PLAN", "gpt-4.1-mini"))
 
     context_payload = context_pack.model_dump()
     context_json = json.dumps(context_payload, ensure_ascii=False, indent=2)

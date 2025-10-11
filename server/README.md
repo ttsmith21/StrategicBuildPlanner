@@ -37,7 +37,7 @@ Ensure `.env` file has required variables:
 ```env
 # OpenAI
 OPENAI_API_KEY=sk-***
-OPENAI_MODEL_PLAN=o4-mini
+OPENAI_MODEL_PLAN=gpt-4.1-mini
 
 # Confluence (optional - only for /publish endpoint)
 CONFLUENCE_BASE_URL=https://your-domain.atlassian.net

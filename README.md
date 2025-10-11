@@ -9,7 +9,7 @@ A production-ready AI assistant that ingests procurement documents (POs, quotes,
 ## 🎯 What It Does
 
 1. **Ingests** project documents (PDFs, DOCX, TXT) and Confluence pages via CQL
-2. **Analyzes** using OpenAI's vector search and reasoning models (o4-mini)
+2. **Analyzes** using OpenAI's vector search and reasoning models (gpt-4.1-mini)
 3. **Drafts** a manufacturing-ready Strategic Build Plan with:
    - Contract/commercial analysis (PO vs Quote deltas)
    - Technical requirements (materials, finishes, tolerances, welding)
@@ -50,7 +50,7 @@ Edit `.env` with your credentials:
 ```env
 # OpenAI
 OPENAI_API_KEY=sk-proj-...your-key...
-OPENAI_MODEL_PLAN=o4-mini
+OPENAI_MODEL_PLAN=gpt-4.1-mini
 OPENAI_MODEL_TRANSCRIBE=whisper-1
 
 # Confluence (Cloud)
@@ -121,7 +121,7 @@ StrategicBuildPlanner/
 - Adds meeting transcripts (if provided)
 
 ### 2. **Structured Reasoning**
-- Uses OpenAI's **Responses API** with **o4-mini** reasoning model
+- Uses OpenAI's **Assistants API** with **gpt-4.1-mini** reasoning model
 - Enforces a strict JSON schema (no hallucinated fields!)
 - Includes stainless sheet-metal APQP checklist in system prompt
 
@@ -202,10 +202,10 @@ The AI assistant is pre-trained to cover:
 - **v2 Pages**: Fetch body content in `storage` format
 - [API Documentation](https://developer.atlassian.com/cloud/confluence/rest/)
 
-### Why o4-mini?
+### Why gpt-4.1-mini?
 - Fast reasoning model optimized for structured tasks
 - Cost-effective for production use
-- [Model Documentation](https://platform.openai.com/docs/models/o4-mini)
+- [Model Documentation](https://platform.openai.com/docs/models/gpt-4-1)
 
 ---
 

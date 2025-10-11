@@ -101,7 +101,7 @@ def confluence_create_child(
     )
 
     page_id = response.get("id", "?")
-    url = extract_page_url(cfg["base"], cfg["space"], response)
+    url = extract_page_url(cfg["base"], target_space, response)
     return {
         "page_id": page_id,
         "url": url,

@@ -303,7 +303,7 @@ export function PlanPreview({
   let previewContent: JSX.Element | null;
 
   if (!planJson) {
-    previewContent = <p className="small">Draft a plan to see content here.</p>;
+    previewContent = <p className="small">Run specialist agents to see content here.</p>;
   } else {
     switch (activeTab) {
       case "markdown":

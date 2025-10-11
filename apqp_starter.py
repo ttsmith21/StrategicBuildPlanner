@@ -81,6 +81,22 @@ PLAN_SCHEMA = {
             "tooling_fixturing": {"type": "string"},
             "quality_plan": {"type": "string"},
             "materials_finishes": {"type": "string"},
+            "quality_plan_hold_points": {"type": "string"},
+            "quality_plan_welding": {"type": "string"},
+            "quality_plan_cleaning": {"type": "string"},
+            "quality_plan_test_fits": {"type": "string"},
+            "quality_plan_checklists": {"type": "string"},
+            "quality_plan_tests": {"type": "string"},
+            "supplier_quality_manual": {"type": "string"},
+            "quality_plan_other": {"type": "string"},
+            "metrology_opportunities": {"type": "string"},
+            "purchasing_country_of_origin": {"type": "string"},
+            "long_lead_items": {"type": "string"},
+            "outsourced_items": {"type": "string"},
+            "high_volume_material": {"type": "string"},
+            "customer_supplied_items": {"type": "string"},
+            "purchasing_coatings": {"type": "string"},
+            "release_plan": {"type": "string"},
             "ctqs": {
                 "type": "array",
                 "items": {"type":"string"}
@@ -111,7 +127,13 @@ PLAN_SCHEMA = {
         "required": [
             "project", "customer", "revision", "summary", "requirements",
             "process_flow", "tooling_fixturing", "quality_plan", "materials_finishes",
-            "ctqs", "risks", "open_questions", "cost_levers", "pack_ship", "source_files_used"
+            "quality_plan_hold_points", "quality_plan_welding", "quality_plan_cleaning",
+            "quality_plan_test_fits", "quality_plan_checklists", "quality_plan_tests",
+            "supplier_quality_manual", "quality_plan_other", "metrology_opportunities",
+            "purchasing_country_of_origin", "long_lead_items", "outsourced_items",
+            "high_volume_material", "customer_supplied_items", "purchasing_coatings",
+            "release_plan", "ctqs", "risks", "open_questions", "cost_levers", "pack_ship",
+            "source_files_used"
         ]
     },
     "strict": True
@@ -124,38 +146,54 @@ JINJA_TEMPLATE = """# Strategic Build Plan — {{ project }} ({{ customer }})
 **Rev:** {{ revision or '—' }}  
 **Date:** {{ date }}
 
-## Executive Summary
+## Keys to the Project
 {{ summary }}
 
-## Key Requirements (curated)
+### Key Requirements (curated)
 {% for r in requirements -%}
 - **{{ r.topic }}** — {{ r.requirement }}{% if r.source_hint %} _(source: {{ r.source_hint }})_{% endif %}{% if r.confidence is not none %} _(confidence: {{ '%.0f' % (100*r.confidence) }}%)_{% endif %}
 {% endfor %}
 
-## Process Flow
-{{ process_flow }}
+### Quality Plan
+- **Hold Points:** {{ quality_plan_hold_points|default('TBD', true) }}
+- **Critical Dimensions / Characteristics:** {% if ctqs %}{{ ctqs|join(', ') }}{% else %}TBD{% endif %}
+- **Welding Requirements:** {{ quality_plan_welding|default('TBD', true) }}
+- **Cleaning Requirements:** {{ quality_plan_cleaning|default('TBD', true) }}
+- **Test Fits:** {{ quality_plan_test_fits|default('TBD', true) }}
+- **Required Check / Punch Lists:** {{ quality_plan_checklists|default('TBD', true) }}
+- **Required Tests:** {{ quality_plan_tests|default('TBD', true) }}
+- **Supplier Quality Manual:** {{ supplier_quality_manual|default('TBD', true) }}
+- **Other:** {{ quality_plan_other|default('TBD', true) }}
+- **Opportunities to use Faro tracer, Leica, or Twyn:** {{ metrology_opportunities|default('TBD', true) }}
 
-## Tooling & Fixturing
-{{ tooling_fixturing }}
+### Purchasing
+- **Country of Origin / Material Cert Requirements:** {{ purchasing_country_of_origin|default('TBD', true) }}
+- **Long Lead Items:** {{ long_lead_items|default('TBD', true) }}
+- **Outsourced Items:** {{ outsourced_items|default('TBD', true) }}
+- **High Volume / Preordered Material:** {{ high_volume_material|default('TBD', true) }}
+- **Customer Supplied Items:** {{ customer_supplied_items|default('TBD', true) }}
+- **Coatings:** {{ purchasing_coatings|default(materials_finishes, true) }}
 
-## Materials & Finishes
-{{ materials_finishes }}
+### Build Strategy
+{{ process_flow|default('TBD', true) }}
 
-## Quality & Inspection (CTQs, Control Plan alignment)
-CTQs:
-{% for c in ctqs -%}
-- {{ c }}
-{% endfor %}
+### Execution Strategy
+{{ tooling_fixturing|default('TBD', true) }}
 
-Quality Plan:
-{{ quality_plan }}
+### Release Plan
+{{ release_plan|default('TBD', true) }}
+
+### Shipping
+{{ pack_ship|default('TBD', true) }}
+
+---
 
 ## Risks & Mitigations
 {% for rk in risks -%}
 - **Risk:** {{ rk.risk }}  
-  Impact: {{ rk.impact or '—' }}  
-  Mitigation: {{ rk.mitigation }}  
-  Owner: {{ rk.owner or 'TBD' }}  Due: {{ rk.due_date or 'TBD' }}
+    Impact: {{ rk.impact or '—' }}  
+    Mitigation: {{ rk.mitigation }}  
+    Owner: {{ rk.owner or 'TBD' }}  Due: {{ rk.due_date or 'TBD' }}
 {% endfor %}
 
 ## Open Questions
@@ -167,9 +205,6 @@ Quality Plan:
 {% for cl in cost_levers -%}
 - {{ cl }}
 {% endfor %}
-
-## Pack & Ship
-{{ pack_ship }}
 
 ---
 
@@ -186,7 +221,7 @@ def load_env():
     load_dotenv()
     cfg = {
         "openai_key": os.getenv("OPENAI_API_KEY"),
-        "openai_model_plan": os.getenv("OPENAI_MODEL_PLAN", "o4-mini"),
+    "openai_model_plan": os.getenv("OPENAI_MODEL_PLAN", "gpt-4.1-mini"),
         "openai_model_transcribe": os.getenv("OPENAI_MODEL_TRANSCRIBE", "whisper-1"),
         "confluence_base": os.getenv("CONFLUENCE_BASE_URL"),
         "confluence_email": os.getenv("CONFLUENCE_EMAIL"),
