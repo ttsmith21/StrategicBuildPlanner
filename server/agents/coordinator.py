@@ -23,6 +23,8 @@ from .ema import run_ema
 from .pma import run_pma
 from .qma import run_qma
 from .sbpqa import run_sbpqa
+from .keys import run_keys
+from .openq import run_open_questions
 from .sca import run_sca
 
 LOGGER = logging.getLogger(__name__)
@@ -124,6 +126,47 @@ def run_specialists(
     context_pack = _coerce_context_pack(context_pack_payload)
     plan = _normalize_plan(plan_json)
 
+    # Compute a source signature and detect newly added/changed sources.
+    # Source schema fields: id (required), rev (optional), title (required)
+    def _sources_signature(cp: ContextPack) -> list[str]:
+        sigs: list[str] = []
+        try:
+            for s in (cp.sources or []):
+                try:
+                    sid = getattr(s, "id", None) if not isinstance(s, dict) else s.get("id")
+                    rev = getattr(s, "rev", None) if not isinstance(s, dict) else s.get("rev")
+                    title = getattr(s, "title", None) if not isinstance(s, dict) else s.get("title")
+                except Exception:
+                    sid, rev, title = None, None, None
+                # Prefer stable id, fall back to title
+                key = (sid or title or "source")
+                sigs.append(f"{key}@{rev or ''}")
+        except Exception:
+            pass
+        return sigs
+
+    def _detect_changed_sources(prev: list[str] | None, curr: list[str] | None) -> list[str]:
+        prev_set = set(prev or [])
+        return [sig for sig in (curr or []) if sig not in prev_set]
+
+    current_sigs = _sources_signature(context_pack)
+    previous_sigs: list[str] = plan.get("source_files_used") or []
+    changed_sigs = _detect_changed_sources(previous_sigs, current_sigs)
+
+    if changed_sigs:
+        LOGGER.info("coordinator: changed/new sources detected: %s", changed_sigs)
+    # Attach a lightweight hint into project payload so downstream agents can optionally react
+    try:
+        project_meta = context_pack.project or {}
+        hints = project_meta.get("hints") or {}
+        hints["sources_signature"] = current_sigs
+        if changed_sigs:
+            hints["changed_sources"] = changed_sigs
+        project_meta["hints"] = hints
+        context_pack.project = project_meta
+    except Exception as exc:
+        LOGGER.debug("coordinator: failed to attach source hints to context project: %s", exc)
+
     tasks: List[Dict[str, Any]] = []
     conflicts: List[Dict[str, Any]] = []
 
@@ -149,7 +192,28 @@ def run_specialists(
     tasks = _merge_tasks(tasks, ema_patch.tasks)
     conflicts.extend([conflict.model_dump() for conflict in ema_patch.conflicts])
 
+    # Synthesizers: Open Questions (only if empty) then Keys (1–5)
+    try:
+        oq_patch = run_open_questions(plan)
+        if isinstance(oq_patch, AgentPatch):
+            plan.update(oq_patch.patch)
+    except Exception as exc:  # pragma: no cover - resilience
+        LOGGER.warning("Open questions synthesizer failed: %s", exc)
+
+    try:
+        keys_patch = run_keys(plan, context_pack, vector_store_id)
+        if isinstance(keys_patch, AgentPatch):
+            plan.update(keys_patch.patch)
+    except Exception as exc:  # pragma: no cover - resilience
+        LOGGER.warning("Keys synthesizer failed: %s", exc)
+
     qa_result = run_sbpqa(plan, context_pack, vector_store_id)
+
+    # Persist the full source signature used for this run so future runs can diff
+    try:
+        plan["source_files_used"] = current_sigs
+    except Exception:
+        pass
 
     return {
         "plan_json": plan,
