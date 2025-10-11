@@ -49,7 +49,7 @@ from .lib.asana import (
 from .lib.rendering import render_plan_md
 from .lib.session_store import SessionStore
 from .lib.vectorstore import (
-    create_vector_store, delete_vector_store
+    create_vector_store, delete_vector_store, append_files_to_vector_store
 )
 
 # Load environment variables
@@ -221,6 +221,37 @@ class QAGradeResponse(BaseModel):
     reasons: list[str]
     fixes: list[str]
     blocked: bool = False
+
+
+# --------------------
+# On-demand rendering endpoint (render markdown from a plan_json and optional context_pack)
+# --------------------
+
+class RenderRequest(BaseModel):
+    plan_json: dict
+    context_pack: Optional[dict] = None
+
+
+class RenderResponse(BaseModel):
+    plan_markdown: str
+
+
+@app.post("/render", response_model=RenderResponse)
+async def render_plan_endpoint(req: RenderRequest):
+    try:
+        payload = dict(req.plan_json)
+        if req.context_pack and "context_pack" not in payload:
+            # Validate minimally to enforce schema shape and avoid typos
+            try:
+                cp = ContextPack.model_validate(req.context_pack)
+                payload["context_pack"] = cp.model_dump()
+            except Exception:
+                # Fall back to raw insertion if validation fails
+                payload["context_pack"] = req.context_pack
+        md = render_plan_md(payload)
+        return RenderResponse(plan_markdown=md)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Failed to render markdown: {exc}")
 
 
 class AsanaTasksRequest(BaseModel):
@@ -928,18 +959,24 @@ async def get_confluence_page_summary(page_id: str):
 @app.post("/ingest", response_model=IngestResponse)
 async def ingest_files(
     files: list[UploadFile] = File(...),
-    project_name: str = Form(...),
+    project_name: Optional[str] = Form(None),
     customer: Optional[str] = Form(None),
     family: Optional[str] = Form(None),
     cql: Optional[str] = Form(None),
     files_meta: Optional[str] = Form(None),
+    session_id: Optional[str] = Form(None),
+    vector_store_id: Optional[str] = Form(None),
+    append: Optional[bool] = Form(True),
 ):
     """
     Upload files, create vector store, and build context pack.
     
     Returns everything needed to run specialist agents directly - no draft required!
     """
-    session_id = str(uuid.uuid4())
+    # Determine session behavior: create new or append to existing
+    creating_new_session = not session_id
+    if creating_new_session:
+        session_id = str(uuid.uuid4())
     session_dir = get_temp_dir() / session_id
     session_dir.mkdir(exist_ok=True)
     
@@ -957,12 +994,20 @@ async def ingest_files(
         file_paths.append(str(file_path))
     
     try:
-        # Create vector store immediately (required for specialist agents)
-        vector_store_id, source_file_names = create_vector_store(
-            openai_client,
-            project_name,
-            file_paths
-        )
+        # Create or append to vector store
+        source_file_names: list[str] = []
+        if vector_store_id and append:
+            # Append to existing vector store
+            source_file_names = append_files_to_vector_store(openai_client, vector_store_id, file_paths)
+        else:
+            # Create new vector store (requires a project name)
+            if not project_name:
+                project_name = sessions.get(session_id, {}).get("project_name") or "Untitled Project"
+            vector_store_id, source_file_names = create_vector_store(
+                openai_client,
+                project_name,
+                file_paths
+            )
         
         # Build context pack (required for specialist agents)
         uploaded_entries = _build_uploaded_source_entries({"file_names": file_names, "file_paths": file_paths})
@@ -979,9 +1024,10 @@ async def ingest_files(
             except Exception as e:
                 LOGGER.warning(f"Failed to fetch Confluence pages: {e}")
         
+        # Merge newly uploaded sources into prior context if appending
         sources = build_source_registry(uploaded_entries, confluence_entries, files_meta=meta_dict)
         project_context: Dict[str, Any] = {
-            "name": project_name,
+            "name": project_name or sessions.get(session_id, {}).get("project_name"),
             "customer": customer,
             "family": family,
             "generated_at": datetime.now().isoformat(),
@@ -990,27 +1036,38 @@ async def ingest_files(
         context_pack = freeze_context_pack(sources, [], project_context)
         
         # Store session data with vector store and context pack (in-memory)
-        sessions[session_id] = {
-            "project_name": project_name,
-            "customer": customer,
-            "family": family,
-            "cql": cql,
-            "file_paths": file_paths,
-            "file_names": file_names,
-            "files_meta": meta_dict,
-            "vector_store_id": vector_store_id,
-            "context_pack": context_pack.model_dump(),
-            "created_at": datetime.now().isoformat()
-        }
+        if creating_new_session or session_id not in sessions:
+            sessions[session_id] = {
+                "project_name": project_name,
+                "customer": customer,
+                "family": family,
+                "cql": cql,
+                "file_paths": file_paths,
+                "file_names": file_names,
+                "files_meta": meta_dict,
+                "vector_store_id": vector_store_id,
+                "context_pack": context_pack.model_dump(),
+                "created_at": datetime.now().isoformat()
+            }
+        else:
+            # Append mode: extend file lists and update vector_store_id/context
+            sessions[session_id]["file_paths"] = (sessions[session_id].get("file_paths") or []) + file_paths
+            sessions[session_id]["file_names"] = (sessions[session_id].get("file_names") or []) + file_names
+            sessions[session_id]["vector_store_id"] = vector_store_id
+            sessions[session_id]["context_pack"] = context_pack.model_dump()
         # Also create a persistent session record for resumability
-        session_store.create(project_name=project_name, session_id=session_id)
+        if creating_new_session:
+            session_store.create(project_name=project_name, session_id=session_id)
         session_store.save_snapshot(session_id, plan_json={}, context_pack=context_pack.model_dump(), vector_store_id=vector_store_id, note="post-ingest")
         
         return IngestResponse(
             session_id=session_id,
-            message=f"Uploaded {len(files)} file(s) and created vector store successfully",
+            message=(
+                f"Appended {len(files)} file(s) to session" if not creating_new_session and append
+                else f"Uploaded {len(files)} file(s) and created vector store successfully"
+            ),
             file_count=len(files),
-            file_names=file_names,
+            file_names=(sessions.get(session_id, {}).get("file_names") or file_names),
             vector_store_id=vector_store_id,
             context_pack=context_pack
         )
