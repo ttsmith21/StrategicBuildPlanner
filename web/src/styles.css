@@ -89,13 +89,15 @@ body {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 1fr 1.5fr 1fr;
+  grid-template-columns: 360px minmax(720px, 1fr) 380px;
   gap: 1rem;
   flex: 1;
   padding: 1rem;
   box-sizing: border-box;
   background: radial-gradient(circle at top left, #1e293b, #0f172a);
 }
+
+.left-col { display: flex; flex-direction: column; gap: 0.75rem; }
 
 .panel {
   background: rgba(15, 23, 42, 0.85);
@@ -318,6 +320,14 @@ button.secondary {
   padding: 0.75rem 1rem;
   border-radius: 12px;
   margin-bottom: 0.75rem;
+}
+
+.warning-banner {
+  background: rgba(234, 179, 8, 0.16);
+  border: 1px solid rgba(234, 179, 8, 0.35);
+  color: #fde68a;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
 }
 
 .small {

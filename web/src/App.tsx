@@ -8,6 +8,7 @@ import { ChatPanel } from "./components/ChatPanel";
 import { StatusBar } from "./components/StatusBar";
 import { SessionBar } from "./components/SessionBar";
 import { SessionHistory } from "./components/SessionHistory";
+import { SessionHistoryCompact } from "./components/SessionHistoryCompact";
 import { Toast, ToastContainer } from "./components/ToastContainer";
 import {
   AsanaProjectSummary,
@@ -988,23 +989,8 @@ export default function App() {
       />
 
       <div className="app-shell">
-        {sessionId && (
-          <SessionHistory
-            messages={sessionDetailQuery.data?.messages || []}
-            currentName={sessionsQuery.data?.find((s) => s.session_id === sessionId)?.project_name || null}
-            onRename={async (newName: string) => {
-              try {
-                if (!sessionId) return;
-                await api.patch(`/sessions/${sessionId}`, { project_name: newName });
-                sessionsQuery.refetch();
-                pushToast("success", "Session renamed.");
-              } catch (err) {
-                pushToast("error", "Failed to rename session.");
-              }
-            }}
-          />
-        )}
-        <UploadPanel
+        <div className="left-col">
+          <UploadPanel
           meta={meta}
           onMetaChange={(update) => setMeta((prev) => ({ ...prev, ...update }))}
           onUpload={handleUpload}
@@ -1018,7 +1004,13 @@ export default function App() {
           onCustomerSelected={handleCustomerSelected}
           onFamilySelected={handleFamilySelected}
           onFamilyUrlPaste={handleFamilyUrlPaste}
-        />
+          />
+          {sessionId && (
+            <div style={{ marginTop: "0.75rem" }}>
+              <SessionHistoryCompact messages={sessionDetailQuery.data?.messages || []} />
+            </div>
+          )}
+        </div>
 
         <PlanPreview
           planJson={planJson}
