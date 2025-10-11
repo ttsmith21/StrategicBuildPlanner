@@ -313,6 +313,9 @@ export default function App() {
       });
       // Required: project_name for vector store creation
       formData.append("project_name", meta.projectName);
+      if (sessionId) formData.append("session_id", sessionId);
+      if (vectorStoreId) formData.append("vector_store_id", vectorStoreId);
+      formData.append("append", "true");
       
       // Optional metadata
       if (meta.customer) {
@@ -333,9 +336,10 @@ export default function App() {
       return data;
     },
     onSuccess: (data) => {
-      // Reset state FIRST, before setting new values
-      resetForNewPlan();
-      
+      // Do not blow away context on append; preserve state, only update what changed
+      if (!sessionId) {
+        resetForNewPlan();
+      }
       setSessionId(data.session_id);
       setUploadedFiles(data.file_names);
       
@@ -343,9 +347,7 @@ export default function App() {
       if (data.vector_store_id) {
         setVectorStoreId(data.vector_store_id);
       }
-      if (data.context_pack) {
-        setContextPack(data.context_pack);
-      }
+      if (data.context_pack) setContextPack(data.context_pack);
       
       setStatusMessage(data.message);
       setError(null);
@@ -970,6 +972,33 @@ export default function App() {
     },
   ];
 
+  // Keyboard shortcuts: R=Run, P=Publish, Q=QA (ignored when typing in inputs/textareas)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      try {
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        const el = e.target as HTMLElement | null;
+        const tag = (el?.tagName || "").toUpperCase();
+        if (tag === "INPUT" || tag === "TEXTAREA" || (el as any)?.isContentEditable) return;
+        const k = e.key?.toLowerCase?.() || "";
+        if (k === "r") {
+          e.preventDefault();
+          handleRunAgents();
+        } else if (k === "p") {
+          e.preventDefault();
+          handlePublish();
+        } else if (k === "q") {
+          e.preventDefault();
+          handleQa();
+        }
+      } catch {
+        // noop
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [handleRunAgents, handlePublish, handleQa]);
+
   return (
     <div className="app-wrapper">
       <StatusBar
@@ -1022,6 +1051,13 @@ export default function App() {
           qaBlocked={qaBlocked}
           suggestedTasks={suggestedTasks}
           contextPack={contextPack}
+          sessionId={sessionId || undefined}
+          sessionSnapshots={sessionDetailQuery.data?.snapshots || []}
+          onRestoreSnapshot={(json, md, cp) => {
+            setPlanJson(json as any);
+            if (md) setPlanMarkdown(md);
+            if (cp) setContextPack(cp as any);
+          }}
           creatingTasks={asanaMutation.isPending}
           onCreateTasks={async (tasks) => {
             try {

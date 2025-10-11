@@ -4,16 +4,15 @@ import remarkGfm from "remark-gfm";
 import {
   AsanaTaskSummary,
   EngineeringInstructions,
-  ExecutionStrategy,
   PlanConflict,
   PlanJson,
-  PurchasingPlan,
-  QualityPlan,
   QAGradeResponseData,
-  SchedulePlan,
+  SuggestedTask,
+  ContextPack,
+  SessionSnapshotRecord,
 } from "../types";
 
-type PreviewTab = "markdown" | "json" | "engineering" | "quality" | "purchasing" | "schedule" | "execution";
+type PreviewTab = "markdown" | "json" | "engineering";
 
 interface PlanPreviewProps {
   planJson: PlanJson | null;
@@ -23,6 +22,13 @@ interface PlanPreviewProps {
   publishUrl?: string | null;
   conflicts: PlanConflict[];
   qaBlocked: boolean;
+  suggestedTasks?: { name: string; owner_hint?: string; fingerprint?: string }[];
+  onCreateTasks?: (tasks: SuggestedTask[]) => void;
+  creatingTasks?: boolean;
+  contextPack?: ContextPack | null;
+  sessionId?: string | null;
+  sessionSnapshots?: SessionSnapshotRecord[];
+  onRestoreSnapshot?: (plan: PlanJson, markdown?: string, contextPack?: ContextPack | null) => void;
 }
 
 const formatCitationList = (citations?: { source_id?: string | null }[]) =>
@@ -41,14 +47,31 @@ export function PlanPreview({
   publishUrl,
   conflicts,
   qaBlocked,
+  suggestedTasks = [],
+  onCreateTasks,
+  creatingTasks = false,
+  contextPack,
+  sessionId,
+  sessionSnapshots,
+  onRestoreSnapshot,
 }: PlanPreviewProps) {
   const [activeTab, setActiveTab] = useState<PreviewTab>("markdown");
+  const [selectedTaskKeys, setSelectedTaskKeys] = useState<Set<string>>(new Set());
 
   const engineeringInstructions = planJson?.engineering_instructions as EngineeringInstructions | undefined;
-  const qualityPlan = planJson?.quality_plan as QualityPlan | undefined;
-  const purchasingPlan = planJson?.purchasing as PurchasingPlan | undefined;
-  const schedulePlan = planJson?.release_plan as SchedulePlan | undefined;
-  const executionStrategy = planJson?.execution_strategy as ExecutionStrategy | undefined;
+
+  // Engineering quick counts for tab badge
+  const { exceptionalCount, qualityRoutingCount, dfmCount } = useMemo(() => {
+    const ei: any = engineeringInstructions || {};
+    const exceptional = Array.isArray(ei.exceptional_steps) ? ei.exceptional_steps : [];
+    const dfm = Array.isArray(ei.dfm_actions) ? ei.dfm_actions : [];
+    const qualityRouting = Array.isArray(ei.quality_routing) ? ei.quality_routing : [];
+    return {
+      exceptionalCount: exceptional.length,
+      qualityRoutingCount: qualityRouting.length,
+      dfmCount: dfm.length,
+    };
+  }, [engineeringInstructions]);
 
   const engineeringMarkdown = useMemo(() => {
     if (!engineeringInstructions) {
@@ -60,6 +83,26 @@ export function PlanPreview({
     const ctqs = engineeringInstructions.ctqs_for_routing ?? [];
     const programs = engineeringInstructions.programs ?? [];
     const openItems = engineeringInstructions.open_items ?? [];
+    const exceptional = (engineeringInstructions as any).exceptional_steps ?? [];
+    const dfm = (engineeringInstructions as any).dfm_actions ?? [];
+    const qualityRouting = (engineeringInstructions as any).quality_routing ?? [];
+
+    if (exceptional.length > 0) {
+      lines.push("### Exceptional Steps (Non‑standard)");
+      lines.push("| Step | Workcenter | Input | Program | Notes | QC | Sources |");
+      lines.push("| --- | --- | --- | --- | --- | --- | --- |");
+      exceptional.forEach((step: any) => {
+        const notes = step.notes?.length ? step.notes.join("<br />") : "—";
+        const qc = step.qc?.length ? step.qc.join("<br />") : "—";
+        const sources = step.sources?.length
+          ? step.sources.map((s: any) => s.source_id).join(", ")
+          : "—";
+        lines.push(
+          `| ${step.op_no} | ${step.workcenter} | ${step.input ?? "—"} | ${step.program ?? "—"} | ${notes} | ${qc} | ${sources} |`
+        );
+      });
+      lines.push("");
+    }
 
     if (routing.length > 0) {
       lines.push("### Routing");
@@ -96,11 +139,32 @@ export function PlanPreview({
       lines.push("");
     }
 
+    if (qualityRouting.length > 0) {
+      lines.push("### Quality Operation Placements");
+      qualityRouting.forEach((q: any) => {
+        const notes = q.notes?.length ? ` — ${q.notes.join("; ")}` : "";
+        const sources = q.sources?.length ? ` _(Sources: ${q.sources.map((s: any) => s.source_id).join(", ")})_` : "";
+        lines.push(`1. ${q.workcenter}: ${q.quality_operation}${notes}${sources}`);
+      });
+      lines.push("");
+    }
+
     if (ctqs.length > 0) {
       lines.push("### CTQ Callouts");
       ctqs.forEach((ctq) => {
         const sources = ctq.citations?.map((c) => c.source_id).join(", ") || "—";
         lines.push(`- **${ctq.ctq}** — ${ctq.measurement_plan} _(Sources: ${sources})_`);
+      });
+      lines.push("");
+    }
+
+    if (dfm.length > 0) {
+      lines.push("### DFM Actions to Carry Through in Design");
+      dfm.forEach((a: any) => {
+        const tgt = a.target ? ` — Target: ${a.target}` : "";
+        const why = a.rationale ? ` — Rationale: ${a.rationale}` : "";
+        const sources = a.sources?.length ? ` _(Sources: ${a.sources.map((s: any) => s.source_id).join(", ")})_` : "";
+        lines.push(`- ${a.action}${tgt}${why}${sources}`);
       });
       lines.push("");
     }
@@ -118,171 +182,13 @@ export function PlanPreview({
 
     return lines.join("\n").trim();
   }, [engineeringInstructions]);
-
-  const qualityMarkdown = useMemo(() => {
-    if (!qualityPlan) {
-      return "";
-    }
-    const lines: string[] = [];
-    const pushList = (title: string, items?: string[]) => {
-      if (!items || items.length === 0) {
-        return;
-      }
-      lines.push(`### ${title}`);
-      items.forEach((item) => lines.push(`- ${item}`));
-      lines.push("");
-    };
-
-    pushList("Critical to Quality", qualityPlan.ctqs);
-    pushList("Inspection Levels", qualityPlan.inspection_levels);
-
-    if (qualityPlan.passivation || qualityPlan.cleanliness) {
-      lines.push("### Special Processes");
-      if (qualityPlan.passivation) {
-        lines.push(`- **Passivation:** ${qualityPlan.passivation}`);
-      }
-      if (qualityPlan.cleanliness) {
-        lines.push(`- **Cleanliness:** ${qualityPlan.cleanliness}`);
-      }
-      lines.push("");
-    }
-
-    pushList("Hold Points", qualityPlan.hold_points);
-    pushList("Required Tests", qualityPlan.required_tests);
-    pushList("Documentation", qualityPlan.documentation);
-    pushList("Metrology", qualityPlan.metrology);
-
-    return lines.join("\n").trim();
-  }, [qualityPlan]);
-
-  const purchasingMarkdown = useMemo(() => {
-    if (!purchasingPlan) {
-      return "";
-    }
-    const lines: string[] = [];
-
-    if (purchasingPlan.long_leads?.length) {
-      lines.push("### Long Lead Items");
-      lines.push("| Item | Lead Time | Vendor | Sources |");
-      lines.push("| --- | --- | --- | --- |");
-      purchasingPlan.long_leads.forEach((item) => {
-        lines.push(
-          `| ${item.item} | ${item.lead_time ?? "—"} | ${item.vendor_hint ?? "—"} | ${formatCitationList(item.citations)} |`
-        );
-      });
-      lines.push("");
-    }
-
-    if (purchasingPlan.coo_mtr) {
-      lines.push(`**Country of Origin / Material Traceability:** ${purchasingPlan.coo_mtr}`);
-      lines.push("");
-    }
-
-    if (purchasingPlan.alternates?.length) {
-      lines.push("### Approved Alternates");
-      purchasingPlan.alternates.forEach((alt) => {
-        const rationale = alt.rationale ? ` — ${alt.rationale}` : "";
-        lines.push(
-          `- **${alt.item}** → ${alt.alternate}${rationale} _(Sources: ${formatCitationList(alt.citations)})_`
-        );
-      });
-      lines.push("");
-    }
-
-    if (purchasingPlan.rfqs?.length) {
-      lines.push("### RFQs");
-      lines.push("| Item | Vendor | Due | Sources |");
-      lines.push("| --- | --- | --- | --- |");
-      purchasingPlan.rfqs.forEach((rfq) => {
-        lines.push(
-          `| ${rfq.item} | ${rfq.vendor ?? "—"} | ${rfq.due ?? "—"} | ${formatCitationList(rfq.citations)} |`
-        );
-      });
-      lines.push("");
-    }
-
-    return lines.join("\n").trim();
-  }, [purchasingPlan]);
-
-  const scheduleMarkdown = useMemo(() => {
-    if (!schedulePlan) {
-      return "";
-    }
-    const lines: string[] = [];
-    const pushList = (title: string, items?: string[]) => {
-      if (!items || items.length === 0) {
-        return;
-      }
-      lines.push(`### ${title}`);
-      items.forEach((item) => lines.push(`- ${item}`));
-      lines.push("");
-    };
-
-    if (schedulePlan.milestones?.length) {
-      lines.push("### Milestones");
-      lines.push("| Milestone | Start | End | Owner | Sources |");
-      lines.push("| --- | --- | --- | --- | --- |");
-      schedulePlan.milestones.forEach((milestone) => {
-        lines.push(
-          `| ${milestone.name} | ${milestone.start_hint ?? "—"} | ${milestone.end_hint ?? "—"} | ${milestone.owner ?? "—"} | ${formatCitationList(milestone.citations)} |`
-        );
-      });
-      lines.push("");
-    }
-
-    pushList("Do Earlier Than Baseline", schedulePlan.do_early);
-    pushList("Schedule Risks", schedulePlan.risks);
-
-    return lines.join("\n").trim();
-  }, [schedulePlan]);
-
-  const executionMarkdown = useMemo(() => {
-    if (!executionStrategy) {
-      return "";
-    }
-    const lines: string[] = [];
-
-    if (executionStrategy.timeboxes?.length) {
-      lines.push("### Timeboxes");
-      lines.push("| Window | Focus | Owner | Notes | Sources |");
-      lines.push("| --- | --- | --- | --- | --- |");
-      executionStrategy.timeboxes.forEach((timebox) => {
-        const notes = timebox.notes?.length ? timebox.notes.join("<br />") : "—";
-        lines.push(
-          `| ${timebox.window} | ${timebox.focus} | ${timebox.owner_hint ?? "—"} | ${notes} | ${formatCitationList(timebox.citations)} |`
-        );
-      });
-      lines.push("");
-    }
-
-    if (executionStrategy.notes?.length) {
-      lines.push("### Additional Notes");
-      executionStrategy.notes.forEach((note) => lines.push(`- ${note}`));
-      lines.push("");
-    }
-
-    return lines.join("\n").trim();
-  }, [executionStrategy]);
-
   const hasEngineering = Boolean(engineeringInstructions && engineeringMarkdown);
-  const hasQuality = Boolean(qualityPlan && qualityMarkdown);
-  const hasPurchasing = Boolean(purchasingPlan && purchasingMarkdown);
-  const hasSchedule = Boolean(schedulePlan && scheduleMarkdown);
-  const hasExecution = Boolean(executionStrategy && executionMarkdown);
 
   useEffect(() => {
     if (activeTab === "engineering" && !hasEngineering) {
       setActiveTab("markdown");
-    } else if (activeTab === "quality" && !hasQuality) {
-      setActiveTab("markdown");
-    } else if (activeTab === "purchasing" && !hasPurchasing) {
-      setActiveTab("markdown");
-    } else if (activeTab === "schedule" && !hasSchedule) {
-      setActiveTab("markdown");
-    } else if (activeTab === "execution" && !hasExecution) {
-      setActiveTab("markdown");
     }
-  }, [activeTab, hasEngineering, hasQuality, hasPurchasing, hasSchedule, hasExecution]);
+  }, [activeTab, hasEngineering]);
 
   const handleCopyLink = useCallback(async () => {
     if (!publishUrl) {
@@ -319,34 +225,7 @@ export function PlanPreview({
           <p className="small">Run specialist agents to generate engineering instructions.</p>
         );
         break;
-      case "quality":
-        previewContent = hasQuality ? (
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{qualityMarkdown}</ReactMarkdown>
-        ) : (
-          <p className="small">Run specialist agents to generate a quality plan.</p>
-        );
-        break;
-      case "purchasing":
-        previewContent = hasPurchasing ? (
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{purchasingMarkdown}</ReactMarkdown>
-        ) : (
-          <p className="small">Run specialist agents to generate purchasing actions.</p>
-        );
-        break;
-      case "schedule":
-        previewContent = hasSchedule ? (
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{scheduleMarkdown}</ReactMarkdown>
-        ) : (
-          <p className="small">Run specialist agents to generate a release plan.</p>
-        );
-        break;
-      case "execution":
-        previewContent = hasExecution ? (
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{executionMarkdown}</ReactMarkdown>
-        ) : (
-          <p className="small">Run specialist agents to generate execution strategy guidance.</p>
-        );
-        break;
+      
       default:
         previewContent = <ReactMarkdown remarkPlugins={[remarkGfm]}>{planMarkdown}</ReactMarkdown>;
     }
@@ -356,9 +235,117 @@ export function PlanPreview({
   const qaReasons = qaResult?.reasons ?? [];
   const qaFixes = qaResult?.fixes ?? [];
 
+  // --- Sources & citations helpers ---
+  const sources = contextPack?.sources ?? [];
+  const sourceCount = sources.length;
+  const sourceIdToTitle = useMemo(() => {
+    const map: Record<string, string> = {};
+    sources.forEach((s) => (map[s.id] = s.title));
+    return map;
+  }, [sources]);
+  const sourceIdToUrl = useMemo(() => {
+    const map: Record<string, string> = {};
+    (sources as any[]).forEach((s: any) => {
+      if (s && typeof s === "object" && typeof s.url === "string") {
+        map[s.id] = s.url;
+      } else if (s && typeof s === "object" && typeof s.uri === "string") {
+        map[s.id] = s.uri;
+      }
+    });
+    return map;
+  }, [sources]);
+
+  const citationsSummary = useMemo(() => {
+    const counts: Record<string, number> = { total: 0 };
+    const inc = (key: string, n = 1) => {
+      counts[key] = (counts[key] || 0) + n;
+      counts.total += n;
+    };
+    const scan = (obj: any, path: string[] = []) => {
+      if (!obj) return;
+      if (Array.isArray(obj)) {
+        obj.forEach((item, idx) => scan(item, path.concat(String(idx))));
+        return;
+      }
+      if (typeof obj !== "object") return;
+      // Count citations/sources arrays
+      if (Array.isArray((obj as any).citations)) {
+        inc("citations", (obj as any).citations.length);
+      }
+      if (Array.isArray((obj as any).sources)) {
+        inc("sources", (obj as any).sources.length);
+      }
+      Object.keys(obj).forEach((k) => scan((obj as any)[k], path.concat(k)));
+    };
+    scan(planJson);
+    return counts;
+  }, [planJson]);
+
+  // Suggested tasks selection helpers
+  const taskKeyForIndex = useCallback(
+    (idx: number) => {
+      const t = suggestedTasks[idx] as any;
+      return (t?.fingerprint as string) || `${t?.name || "task"}-${idx}`;
+    },
+    [suggestedTasks]
+  );
+
+  const toggleTaskSelected = useCallback(
+    (idx: number) => {
+      setSelectedTaskKeys((prev) => {
+        const next = new Set(prev);
+        const key = taskKeyForIndex(idx);
+        if (next.has(key)) {
+          next.delete(key);
+        } else {
+          next.add(key);
+        }
+        return next;
+      });
+    },
+    [taskKeyForIndex]
+  );
+
+  const selectAllTasks = useCallback(() => {
+    const next = new Set<string>();
+    suggestedTasks.forEach((_, idx) => next.add(taskKeyForIndex(idx)));
+    setSelectedTaskKeys(next);
+  }, [suggestedTasks, taskKeyForIndex]);
+
+  const clearSelectedTasks = useCallback(() => setSelectedTaskKeys(new Set()), []);
+
+  const sendSelectedToAsana = useCallback(() => {
+    if (!selectedTaskKeys.size || !suggestedTasks.length || !onCreateTasks) return;
+    const toSend = suggestedTasks
+      .map((t, idx) => ({ t, idx }))
+      .filter(({ idx }) => selectedTaskKeys.has(taskKeyForIndex(idx)))
+      .map(({ t }) => t as unknown as SuggestedTask);
+    if (toSend.length) {
+      onCreateTasks(toSend);
+    }
+  }, [selectedTaskKeys, suggestedTasks, taskKeyForIndex, onCreateTasks]);
+
   return (
     <div className="panel">
-      <h2>Plan Preview</h2>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
+        <h2 style={{ margin: 0 }}>Plan Preview</h2>
+        {/* New sources badge, if coordinator attached hints */}
+        {(() => {
+          const changed = ((contextPack as any)?.project?.hints?.changed_sources || []) as string[];
+          if (Array.isArray(changed) && changed.length > 0) {
+            return (
+              <span
+                className="badge"
+                title={changed.join("\n")}
+                style={{ background: "#1e40af", color: "#dbeafe" }}
+              >
+                {changed.length} new source{changed.length > 1 ? "s" : ""}
+              </span>
+            );
+          }
+          return null;
+        })()}
+      </div>
 
       <div className="preview-tabs">
         <button
@@ -382,39 +369,13 @@ export function PlanPreview({
           disabled={!hasEngineering}
         >
           Engineering
+          {hasEngineering && (exceptionalCount || dfmCount || qualityRoutingCount) ? (
+            <span className="badge small" style={{ marginLeft: "0.5rem" }}>
+              {exceptionalCount} / {dfmCount} / {qualityRoutingCount}
+            </span>
+          ) : null}
         </button>
-        <button
-          type="button"
-          className={`${activeTab === "quality" ? "active" : ""} ${!hasQuality ? "disabled" : ""}`.trim()}
-          onClick={() => hasQuality && setActiveTab("quality")}
-          disabled={!hasQuality}
-        >
-          Quality
-        </button>
-        <button
-          type="button"
-          className={`${activeTab === "purchasing" ? "active" : ""} ${!hasPurchasing ? "disabled" : ""}`.trim()}
-          onClick={() => hasPurchasing && setActiveTab("purchasing")}
-          disabled={!hasPurchasing}
-        >
-          Purchasing
-        </button>
-        <button
-          type="button"
-          className={`${activeTab === "schedule" ? "active" : ""} ${!hasSchedule ? "disabled" : ""}`.trim()}
-          onClick={() => hasSchedule && setActiveTab("schedule")}
-          disabled={!hasSchedule}
-        >
-          Schedule
-        </button>
-        <button
-          type="button"
-          className={`${activeTab === "execution" ? "active" : ""} ${!hasExecution ? "disabled" : ""}`.trim()}
-          onClick={() => hasExecution && setActiveTab("execution")}
-          disabled={!hasExecution}
-        >
-          Execution
-        </button>
+        
       </div>
 
       <div className="plan-preview">{previewContent}</div>
@@ -464,6 +425,63 @@ export function PlanPreview({
         </section>
       )}
 
+      {/* Snapshot diff + restore controls */}
+      {sessionId && (sessionSnapshots?.length ?? 0) > 0 && (
+        <section>
+          <h3 style={{ marginTop: 0 }}>Snapshots</h3>
+          {(() => {
+            const snaps = sessionSnapshots || [];
+            const last = snaps[snaps.length - 1];
+            const prev = snaps.length > 1 ? snaps[snaps.length - 2] : undefined;
+            const safeArr = (v: any) => (Array.isArray(v) ? v : []);
+            const arrSet = (v: any[]) => new Set(v.map((x) => (typeof x === "string" ? x : JSON.stringify(x))));
+            const a = (prev?.plan_json as any) || {};
+            const b = (last?.plan_json as any) || {};
+            const keysA: string[] = safeArr(a?.summary?.keys); const keysB: string[] = safeArr(b?.summary?.keys);
+            const ctqA: string[] = safeArr(a?.quality_plan?.ctqs); const ctqB: string[] = safeArr(b?.quality_plan?.ctqs);
+            const llA: any[] = safeArr(a?.purchasing?.long_lead_items); const llB: any[] = safeArr(b?.purchasing?.long_lead_items);
+            const added = {
+              keys: keysB.filter((k) => !arrSet(keysA).has(k)),
+              ctqs: ctqB.filter((k) => !arrSet(ctqA).has(k)),
+              long_leads: llB.filter((x) => !arrSet(llA).has(typeof x === "string" ? x : JSON.stringify(x))),
+            };
+            const removed = {
+              keys: keysA.filter((k) => !arrSet(keysB).has(k)),
+              ctqs: ctqA.filter((k) => !arrSet(ctqB).has(k)),
+              long_leads: llA.filter((x) => !arrSet(llB).has(typeof x === "string" ? x : JSON.stringify(x))),
+            };
+            return (
+              <div className="listing" style={{ padding: "0.5rem 0.75rem" }}>
+                <div className="small" style={{ opacity: 0.8, marginBottom: "0.5rem" }}>
+                  Latest: {new Date((last?.ts || 0) * 1000).toLocaleString()} {last?.note ? `· ${last?.note}` : ""}
+                  {prev && (
+                    <>
+                      <br />
+                      vs Previous: {new Date((prev.ts || 0) * 1000).toLocaleString()} {prev.note ? `· ${prev.note}` : ""}
+                    </>
+                  )}
+                </div>
+                <div className="badge">+ Keys: {added.keys.length}  − {removed.keys.length}</div>
+                <div className="badge">+ CTQs: {added.ctqs.length}  − {removed.ctqs.length}</div>
+                <div className="badge">+ Long-leads: {added.long_leads.length}  − {removed.long_leads.length}</div>
+                <div style={{ marginTop: "0.5rem" }}>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={async () => {
+                      if (!onRestoreSnapshot || !last) return;
+                      onRestoreSnapshot((last.plan_json as any) || {}, undefined, (last.context_pack as any) || null);
+                    }}
+                  >
+                    Restore latest snapshot
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+        </section>
+      )}
+
       {conflicts.length > 0 && (
         <section>
           <h3 style={{ marginTop: 0, color: "#f97316" }}>Specialist Conflicts</h3>
@@ -498,6 +516,87 @@ export function PlanPreview({
           </div>
         </section>
       )}
+
+      {suggestedTasks.length > 0 && (
+        <section>
+          <h3 style={{ marginTop: 0, color: "#22c55e" }}>Suggested Tasks</h3>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+            <button type="button" className="secondary" onClick={selectAllTasks}>
+              Select all
+            </button>
+            <button type="button" className="secondary" onClick={clearSelectedTasks}>
+              Clear
+            </button>
+            <button
+              type="button"
+              className="primary"
+              disabled={!onCreateTasks || creatingTasks || selectedTaskKeys.size === 0}
+              onClick={sendSelectedToAsana}
+            >
+              {creatingTasks ? "Sending…" : `Send selected to Asana (${selectedTaskKeys.size})`}
+            </button>
+          </div>
+          <div className="listing">
+            {suggestedTasks.map((task, idx) => {
+              const key = taskKeyForIndex(idx);
+              const checked = selectedTaskKeys.has(key);
+              return (
+                <label key={task.fingerprint ?? `${task.name}-${idx}`} className="badge" style={{ cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleTaskSelected(idx)}
+                    style={{ marginRight: "0.5rem" }}
+                  />
+                  ➕ {task.name} {task.owner_hint ? `— ${task.owner_hint}` : ""}
+                </label>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      <section>
+        <h3 style={{ marginTop: 0 }}>Sources & Citations</h3>
+        {sourceCount > 0 ? (
+          <div className="listing" style={{ padding: "0.5rem 0.75rem" }}>
+            <div className="small" style={{ opacity: 0.8, marginBottom: "0.5rem" }}>
+              Ingested sources: {sourceCount}
+            </div>
+            {sources.map((s) => {
+              const url = (sourceIdToUrl as any)[s.id];
+              return (
+                <div key={s.id} className="badge" title={s.title}>
+                  {url ? (
+                    <a href={url} target="_blank" rel="noreferrer">{s.id}</a>
+                  ) : (
+                    <>{s.id}</>
+                  )}
+                  {" "}— {s.title} ({s.kind}; {s.authority})
+                </div>
+              );
+            })}
+            <div className="small" style={{ opacity: 0.8, marginTop: "0.75rem" }}>
+              Citations found in plan: {citationsSummary.total} {citationsSummary.total > 0 && `— (sources: ${citationsSummary.sources || 0}, citations: ${citationsSummary.citations || 0})`}
+            </div>
+          </div>
+        ) : (
+          <div className="listing" style={{ padding: "0.5rem 0.75rem" }}>
+            {(planJson?.source_files_used?.length ?? 0) > 0 ? (
+              <>
+                <div className="small" style={{ opacity: 0.8, marginBottom: "0.5rem" }}>
+                  Sources used (filenames):
+                </div>
+                {planJson!.source_files_used!.map((name, idx) => (
+                  <div key={`${name}-${idx}`} className="badge">📄 {name}</div>
+                ))}
+              </>
+            ) : (
+              <div className="small" style={{ opacity: 0.8 }}>No sources listed.</div>
+            )}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

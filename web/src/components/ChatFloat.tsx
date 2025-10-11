@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChatPanel } from "./ChatPanel";
 import type { AsanaProjectSummary, ChatMessage, SpecialistAgentKey } from "../types";
@@ -37,14 +37,33 @@ export interface ChatFloatProps {
 export function ChatFloat(props: ChatFloatProps) {
   const [open, setOpen] = useState(false);
   const [mount, setMount] = useState<HTMLElement | null>(null);
+  const [unread, setUnread] = useState(0);
+  const lastCountRef = useRef(0);
   useEffect(() => setMount(document.body), []);
+  useEffect(() => {
+    // Poll session messages count if available via parent props (fallback: no-op)
+    const tick = async () => {
+      try {
+        // In this component we don't have sessionId; parent can extend this later.
+        // For now, increment unread on close when new messages arrive via props.
+        const n = props.messages?.length || 0;
+        if (!open && n > lastCountRef.current) {
+          setUnread((prev) => prev + (n - lastCountRef.current));
+        }
+        lastCountRef.current = n;
+      } catch {}
+    };
+    const id = window.setInterval(tick, 5000);
+    tick();
+    return () => window.clearInterval(id);
+  }, [open, props.messages?.length]);
   if (!mount) return null;
 
   const panel = (
     <div style={{ position: "fixed", bottom: 16, right: 16, zIndex: 1000 }}>
       {!open && (
         <button
-          onClick={() => setOpen(true)}
+          onClick={() => { setOpen(true); setUnread(0); }}
           style={{
             padding: "10px 14px",
             borderRadius: 999,
@@ -53,11 +72,29 @@ export function ChatFloat(props: ChatFloatProps) {
             border: "none",
             boxShadow: "0 6px 16px rgba(0,0,0,0.2)",
             cursor: "pointer",
+            position: "relative",
           }}
           aria-label="Chat with Planner"
           title="Chat with Planner"
         >
           💬 Chat with Planner
+          {unread > 0 && (
+            <span
+              style={{
+                position: "absolute",
+                top: -6,
+                right: -6,
+                background: "#ef4444",
+                color: "white",
+                borderRadius: 999,
+                padding: "2px 6px",
+                fontSize: 12,
+                fontWeight: 700,
+              }}
+            >
+              {unread}
+            </span>
+          )}
         </button>
       )}
       {open && (
