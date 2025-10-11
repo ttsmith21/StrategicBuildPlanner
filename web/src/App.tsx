@@ -3,50 +3,50 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "./api";
 import { UploadPanel } from "./components/UploadPanel";
 import { PlanPreview } from "./components/PlanPreview";
+import { ChatFloat } from "./components/ChatFloat";
 import { ChatPanel } from "./components/ChatPanel";
 import { StatusBar } from "./components/StatusBar";
+import { SessionBar } from "./components/SessionBar";
+import { SessionHistory } from "./components/SessionHistory";
 import { Toast, ToastContainer } from "./components/ToastContainer";
 import {
-  AsanaTaskSummary,
-  ChatMessage,
-  IngestResponseData,
-  MeetingApplyResponseData,
-  PlanJson,
-  PlannerMeta,
-  PublishResponseData,
-  QAGradeResponseData,
-  SuggestedTask,
-  AsanaTasksResponseData,
-  ConfluencePageSummary,
   AsanaProjectSummary,
+  AsanaTaskSummary,
+  AgentsRunResponseData,
+  AsanaTasksResponseData,
   AsanaProjectCreateResponse,
   AuthStatusResponse,
-  VersionInfo,
+  ChatMessage,
+  ConfluencePageSummary,
   ContextPack,
-  AgentsRunResponseData,
+  IngestResponseData,
+  MeetingApplyResponseData,
+  PlannerMeta,
   PlanConflict,
+  PlanJson,
+  PublishResponseData,
+  QAGradeResponseData,
   SpecialistAgentKey,
+  SuggestedTask,
+  VersionInfo,
+  SessionRecord,
 } from "./types";
 
-const now = () => new Date().toISOString();
-const makeId = () =>
-  typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
-
-const RECENT_CUSTOMERS_KEY = "sbp_recent_customers";
-const RECENT_FAMILIES_KEY = "sbp_recent_families";
-const MAX_RECENT_PAGES = 6;
-
+// Local UI types/utilities
 type AgentStatus = "idle" | "pending" | "ok" | "warn";
-
-const SPECIALIST_AGENT_KEYS: readonly SpecialistAgentKey[] = [
+type AgentStatusMap = Record<SpecialistAgentKey, AgentStatus>;
+const SPECIALIST_AGENT_KEYS: SpecialistAgentKey[] = [
   "qma",
   "pma",
   "sca",
   "ema",
   "sbpqa",
 ];
-
-type AgentStatusMap = Record<SpecialistAgentKey, AgentStatus>;
+const RECENT_CUSTOMERS_KEY = "apqp_recent_customers";
+const RECENT_FAMILIES_KEY = "apqp_recent_families";
+const MAX_RECENT_PAGES = 8;
+const makeId = () => Math.random().toString(36).slice(2);
+const now = () => new Date().toISOString();
 
 const INITIAL_AGENT_STATUSES: AgentStatusMap = {
   qma: "idle",
@@ -198,6 +198,26 @@ export default function App() {
     staleTime: 60_000,
   });
 
+  const sessionsQuery = useQuery<SessionRecord[]>({
+    queryKey: ["sessions"],
+    queryFn: async () => {
+      const { data } = await api.get<SessionRecord[]>("/sessions", { params: { limit: 12 } });
+      return data;
+    },
+    staleTime: 30_000,
+  });
+
+  const sessionDetailQuery = useQuery<SessionRecord | null>({
+    queryKey: ["session", sessionId],
+    queryFn: async () => {
+      if (!sessionId) return null;
+      const { data } = await api.get<SessionRecord>(`/sessions/${sessionId}`);
+      return data;
+    },
+    enabled: Boolean(sessionId),
+    staleTime: 10_000,
+  });
+
   const healthStatus: "unknown" | "ok" | "error" = useMemo(() => {
     if (healthQuery.isPending) {
       return "unknown";
@@ -301,6 +321,11 @@ export default function App() {
         formData.append("family", meta.family);
       }
 
+      // Optional: upload presets for doc types/authority/precedence
+      if (meta.filesMeta && Object.keys(meta.filesMeta).length > 0) {
+        formData.append("files_meta", JSON.stringify(meta.filesMeta));
+      }
+
       const { data } = await api.post<IngestResponseData>("/ingest", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
@@ -353,16 +378,29 @@ export default function App() {
       if (!planJson) {
         throw new Error("Run specialist agents before applying meeting notes.");
       }
-      const { data } = await api.post<MeetingApplyResponseData>("/meeting/apply", {
+      const payload: Record<string, unknown> = {
         plan_json: planJson,
         transcript_texts: [transcript],
-      });
+      };
+      if (sessionId) {
+        payload.session_id = sessionId;
+      }
+      const { data } = await api.post<MeetingApplyResponseData>("/meeting/apply", payload);
       return data;
     },
     onSuccess: (data, transcript) => {
       setPlanJson(data.updated_plan_json);
       setPlanMarkdown(data.updated_plan_markdown);
       setSuggestedTasks(data.suggested_tasks ?? []);
+      const postSessionMessage = async (role: string, text: string) => {
+        try {
+          if (sessionId) {
+            await api.post(`/sessions/${sessionId}/messages`, { role, text });
+          }
+        } catch (err) {
+          // non-fatal
+        }
+      };
       setMessages((prev: ChatMessage[]) => [
         ...prev,
         {
@@ -378,6 +416,9 @@ export default function App() {
           timestamp: now(),
         },
       ]);
+      // Persist chat into session history when available
+      void postSessionMessage("user", transcript);
+      void postSessionMessage("assistant", data.changes_summary);
       setStatusMessage("Meeting notes applied.");
       setChatInput("");
       setError(null);
@@ -568,8 +609,17 @@ export default function App() {
     onSuccess: async (data) => {
       setPlanJson(data.plan_json);
       setPlanMarkdown(data.plan_markdown);
-      setSuggestedTasks(data.tasks_suggested ?? []);
+      setSuggestedTasks((data as any).tasks?.suggested ?? data.tasks_suggested ?? []);
       setPlanConflicts(data.conflicts ?? []);
+      if (data.context_pack) {
+        setContextPack(data.context_pack as unknown as ContextPack);
+      }
+      if (data.vector_store_id) {
+        setVectorStoreId(data.vector_store_id);
+      }
+      if ((data as any).session_id) {
+        setSessionId((data as any).session_id as string);
+      }
       setStatusMessage("Specialist agents completed.");
       setError(null);
       pushToast("success", "Specialist agents completed.");
@@ -660,6 +710,31 @@ export default function App() {
   const handleUpload = async (files: FileList) => {
     setStatusMessage(null);
     await ingestMutation.mutateAsync(files);
+  };
+
+  const handleResumeSession = async (sid: string) => {
+    try {
+      const { data } = await api.get<SessionRecord>(`/sessions/${sid}`);
+      setSessionId(data.session_id);
+      const last = (data.snapshots || []).slice(-1)[0];
+      if (last) {
+        if (last.plan_json && Object.keys(last.plan_json).length > 0) {
+          setPlanJson(last.plan_json as any);
+        }
+        if (last.context_pack) {
+          setContextPack(last.context_pack);
+        }
+        if (last.vector_store_id) {
+          setVectorStoreId(last.vector_store_id);
+        }
+        setStatusMessage("Session resumed from last snapshot.");
+        pushToast("success", "Session resumed.");
+      } else {
+        setStatusMessage("Session loaded. No snapshots yet.");
+      }
+    } catch (err) {
+      pushToast("error", "Failed to resume session.");
+    }
   };
 
   const handleSendMessage = async () => {
@@ -906,7 +981,29 @@ export default function App() {
         versionInfo={versionQuery.data}
       />
 
+      <SessionBar
+        sessions={sessionsQuery.data || []}
+        currentSessionId={sessionId}
+        onResume={handleResumeSession}
+      />
+
       <div className="app-shell">
+        {sessionId && (
+          <SessionHistory
+            messages={sessionDetailQuery.data?.messages || []}
+            currentName={sessionsQuery.data?.find((s) => s.session_id === sessionId)?.project_name || null}
+            onRename={async (newName: string) => {
+              try {
+                if (!sessionId) return;
+                await api.patch(`/sessions/${sessionId}`, { project_name: newName });
+                sessionsQuery.refetch();
+                pushToast("success", "Session renamed.");
+              } catch (err) {
+                pushToast("error", "Failed to rename session.");
+              }
+            }}
+          />
+        )}
         <UploadPanel
           meta={meta}
           onMetaChange={(update) => setMeta((prev) => ({ ...prev, ...update }))}
@@ -931,8 +1028,50 @@ export default function App() {
           publishUrl={publishResult?.url}
           conflicts={planConflicts}
           qaBlocked={qaBlocked}
+          suggestedTasks={suggestedTasks}
+          contextPack={contextPack}
+          creatingTasks={asanaMutation.isPending}
+          onCreateTasks={async (tasks) => {
+            try {
+              await asanaMutation.mutateAsync({ tasks, planUrl: publishResult?.url });
+            } catch (err) {
+              // error toasts already handled in mutation
+            }
+          }}
         />
 
+        <ChatFloat
+          messages={messages}
+          input={chatInput}
+          onInputChange={setChatInput}
+          onSend={handleSendMessage}
+          sending={meetingApplyMutation.isPending}
+          actions={actions}
+          confluenceParentId={confluenceParentId}
+          onConfluenceParentIdChange={handleConfluenceParentIdChange}
+          selectedAsanaProject={selectedAsanaProject}
+          onSelectAsanaProject={handleSelectAsanaProject}
+          manualAsanaProjectId={manualAsanaProjectId}
+          onManualAsanaProjectIdChange={handleManualAsanaProjectIdChange}
+          newProjectName={newProjectName}
+          onNewProjectNameChange={handleNewProjectNameChange}
+          onCreateProject={handleCreateProject}
+          creatingProject={createProjectMutation.isPending}
+          publishUrl={publishResult?.url}
+          qaSummary={qaSummary}
+          qaBlocked={qaBlocked}
+          qaFixes={qaTopFixes}
+          asanaStatus={
+            asanaTasks.length || asanaSkippedCount
+              ? `Created ${asanaTasks.length}, skipped ${asanaSkippedCount}`
+              : null
+          }
+          statusMessage={statusMessage}
+          errorMessage={error}
+          disabled={isBusy}
+          agentStatuses={agentStatuses}
+          agentsRunning={agentsMutation.isPending}
+        />
         <ChatPanel
           messages={messages}
           input={chatInput}
@@ -964,6 +1103,7 @@ export default function App() {
           disabled={isBusy}
           agentStatuses={agentStatuses}
           agentsRunning={agentsMutation.isPending}
+          hideChat
         />
       </div>
 

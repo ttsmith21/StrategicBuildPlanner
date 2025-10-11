@@ -46,6 +46,21 @@ export interface EngineeringInstructions {
   programs: EngineeringProgram[];
   ctqs_for_routing: EngineeringCtqCallout[];
   open_items: EngineeringOpenItem[];
+  // Focused outputs from EMA
+  exceptional_steps?: EngineeringRoutingStep[];
+  dfm_actions?: {
+    action: string;
+    target?: string | null;
+    rationale?: string | null;
+    citations?: EngineeringCitation[];
+  }[];
+  quality_routing?: {
+    op_no: number;
+    workcenter: string;
+    quality_operation: string;
+    notes?: string[];
+    citations?: EngineeringCitation[];
+  }[];
 }
 
 export interface PlanRequirement {
@@ -138,6 +153,7 @@ export interface PlanJson {
   customer?: string;
   revision?: string;
   summary?: string;
+  keys?: string[];
   requirements?: PlanRequirement[];
   process_flow?: string;
   tooling_fixturing?: string;
@@ -291,6 +307,11 @@ export interface PlannerMeta {
   family: string;
   customerPage?: ConfluencePageSummary | null;
   familyPage?: ConfluencePageSummary | null;
+  filesMeta?: Record<string, {
+    doc_type?: string;
+    authority?: "mandatory" | "conditional" | "reference" | "internal" | string;
+    precedence_rank?: number | "highest" | "high" | "medium" | "low" | string;
+  }>;
 }
 
 export interface AuthStatusResponse {
@@ -324,6 +345,7 @@ export interface AgentsRunResponseData {
   plan_markdown: string;
   deltas?: AgentDelta[];
   tasks_suggested?: SuggestedTask[];
+  tasks?: { suggested: SuggestedTask[]; created: SuggestedTask[]; skipped: (SuggestedTask | string)[] };
   qa?: {
     score?: number;
     blocked?: boolean;
@@ -332,4 +354,32 @@ export interface AgentsRunResponseData {
     reasons?: string[];
   };
   conflicts?: PlanConflict[];
+  context_pack?: ContextPack;
+  session_id?: string;
+  vector_store_id?: string;
+}
+
+// Session models (for resumable sessions)
+export interface SessionMessageRecord {
+  ts: number;
+  role: string;
+  text: string;
+  meta?: Record<string, unknown>;
+}
+
+export interface SessionSnapshotRecord {
+  ts: number;
+  plan_json?: Record<string, unknown>;
+  context_pack?: ContextPack;
+  vector_store_id?: string | null;
+  note?: string | null;
+}
+
+export interface SessionRecord {
+  session_id: string;
+  project_name?: string | null;
+  created_ts: number;
+  updated_ts: number;
+  messages: SessionMessageRecord[];
+  snapshots: SessionSnapshotRecord[];
 }

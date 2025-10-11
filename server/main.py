@@ -41,10 +41,13 @@ from .lib.asana import (
     list_projects as asana_list_projects,
     create_project as asana_create_project,
     list_teams as asana_list_teams,
+    list_workspaces as asana_list_workspaces,
+    detect_default_workspace_gid as asana_detect_default_workspace_gid,
     _fingerprint,
     fingerprint as asana_fingerprint,
 )
 from .lib.rendering import render_plan_md
+from .lib.session_store import SessionStore
 from .lib.vectorstore import (
     create_vector_store, delete_vector_store
 )
@@ -95,7 +98,7 @@ openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Configuration
 CONFIG = {
-    "openai_model_plan": os.getenv("OPENAI_MODEL_PLAN", "gpt-4.1-mini"),
+    "openai_model_plan": os.getenv("OPENAI_MODEL_PLAN", "gpt-5"),
     "confluence_base": os.getenv("CONFLUENCE_BASE_URL"),
     "confluence_email": os.getenv("CONFLUENCE_EMAIL"),
     "confluence_token": os.getenv("CONFLUENCE_API_TOKEN"),
@@ -115,6 +118,8 @@ planner_agent = StrategicBuildPlannerAgent(
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 METRICS_DIR = BASE_DIR / "outputs" / "metrics"
+SESSIONS_DIR = BASE_DIR / "outputs" / "sessions"
+session_store = SessionStore(SESSIONS_DIR)
 
 
 # --------------------
@@ -155,8 +160,14 @@ class AgentsRunResponse(BaseModel):
     plan_json: dict
     plan_markdown: str
     tasks_suggested: list[dict]
+    tasks: Optional[dict] = None
     qa: dict
     conflicts: list[dict]
+    # Additional helpful fields for frontend cohesion
+    context_pack: Optional[dict] = None
+    session_id: Optional[str] = None
+    vector_store_id: Optional[str] = None
+    snapshot_id: Optional[str] = None
 
 
 class PublishRequest(BaseModel):
@@ -209,6 +220,7 @@ class QAGradeResponse(BaseModel):
     score: float
     reasons: list[str]
     fixes: list[str]
+    blocked: bool = False
 
 
 class AsanaTasksRequest(BaseModel):
@@ -275,6 +287,29 @@ class VersionInfo(BaseModel):
     model: Optional[str] = None
     prompt_version: Optional[str] = None
     schema_version: Optional[str] = None
+
+
+class AsanaWorkspaceSummary(BaseModel):
+    gid: str
+    name: Optional[str] = None
+    is_organization: Optional[bool] = None
+
+
+class AsanaWorkspaceDetectResponse(BaseModel):
+    ok: bool
+    workspace_gid: Optional[str] = None
+    reason: Optional[str] = None
+
+
+class DebugProbeRequest(BaseModel):
+    vector_store_id: str
+    query: str = "List the files and provide one 200-character excerpt."
+
+
+class DebugProbeResponse(BaseModel):
+    vector_store_id: str
+    output_text: Optional[str] = None
+    error: Optional[str] = None
 
 
 UNKNOWN_MARKERS = ("UNKNOWN", "TBD", "T.B.D.")
@@ -453,9 +488,12 @@ _SOURCE_LABEL_HINTS: dict[str, tuple[str, ...]] = {
     "po": ("po", "purchase order"),
     "quote": ("quote", "proposal"),
     "itp": ("itp", "inspection", "test plan"),
+    "sow_spec": ("sow", "statement of work", "project spec", "project standard"),
     "customer_spec": ("customer spec", "flowdown"),
     "generic_spec": ("spec", "specification"),
+    "meeting_notes": ("meeting", "minutes", "notes"),
     "lessons_learned": ("lessons", "retro"),
+    "other": ("other",),
 }
 
 
@@ -522,6 +560,37 @@ def _maybe_fetch_family_pages(session: dict) -> list[dict[str, Any]]:
         "family": session.get("family"),
     }
     return [entry]
+
+
+@app.get("/asana/workspaces", response_model=list[AsanaWorkspaceSummary])
+async def asana_workspaces():
+    try:
+        items = asana_list_workspaces()
+        return [
+            AsanaWorkspaceSummary(
+                gid=str(item.get("gid")),
+                name=item.get("name"),
+                is_organization=item.get("is_organization"),
+            )
+            for item in items
+        ]
+    except AsanaConfigError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except requests.HTTPError as e:
+        raise HTTPException(status_code=e.response.status_code if e.response else 500, detail="Asana workspaces list failed") from e
+
+
+@app.get("/asana/workspace/auto", response_model=AsanaWorkspaceDetectResponse)
+async def asana_workspace_auto():
+    try:
+        ws = asana_detect_default_workspace_gid()
+        if ws:
+            return AsanaWorkspaceDetectResponse(ok=True, workspace_gid=str(ws))
+        return AsanaWorkspaceDetectResponse(ok=False, reason="No workspaces visible to this token")
+    except AsanaConfigError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except requests.HTTPError as e:
+        raise HTTPException(status_code=e.response.status_code if e.response else 500, detail="Asana workspace auto-detect failed") from e
 
 
 def _pick_source_id(sources: list[Source], preferred_kinds: list[str]) -> Optional[str]:
@@ -694,6 +763,12 @@ async def root():
             "/confluence/families",
             "/asana/projects",
             "/asana/tasks",
+            "/asana/teams",
+            "/asana/workspaces",
+            "/asana/workspace/auto",
+            "/sessions",
+            "/sessions/{id}",
+            "/sessions/{id}/messages",
         ]
     }
 
@@ -716,6 +791,42 @@ async def version():
 @app.get("/health")
 async def health():
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
+
+@app.post("/debug/probe_vector_store", response_model=DebugProbeResponse)
+async def debug_probe_vector_store(request: DebugProbeRequest):
+    """Probe file_search on a vector_store_id using the server's OpenAI credentials."""
+    try:
+        assistant = openai_client.beta.assistants.create(
+            name="Probe",
+            instructions="Return a short plain text result only.",
+            model=CONFIG.get("openai_model_plan") or "gpt-5",
+            tools=[{"type": "file_search"}],
+            tool_resources={"file_search": {"vector_store_ids": [request.vector_store_id]}},
+        )
+        thread = openai_client.beta.threads.create()
+        openai_client.beta.threads.messages.create(
+            thread_id=thread.id,
+            role="user",
+            content=request.query,
+        )
+        run = openai_client.beta.threads.runs.create_and_poll(
+            thread_id=thread.id,
+            assistant_id=assistant.id,
+            temperature=0.0,
+            timeout=60,
+        )
+        # Extract last assistant message text
+        msgs = openai_client.beta.threads.messages.list(thread_id=thread.id, order="desc", limit=5)
+        for m in msgs.data:
+            for part in getattr(m, "content", []) or []:
+                if getattr(part, "type", None) == "text":
+                    t = getattr(part, "text", None)
+                    if t and getattr(t, "value", None):
+                        return DebugProbeResponse(vector_store_id=request.vector_store_id, output_text=t.value)
+        return DebugProbeResponse(vector_store_id=request.vector_store_id, output_text=None)
+    except Exception as e:
+        return DebugProbeResponse(vector_store_id=request.vector_store_id, error=str(e))
 
 
 def _require_confluence_config() -> None:
@@ -820,7 +931,8 @@ async def ingest_files(
     project_name: str = Form(...),
     customer: Optional[str] = Form(None),
     family: Optional[str] = Form(None),
-    cql: Optional[str] = Form(None)
+    cql: Optional[str] = Form(None),
+    files_meta: Optional[str] = Form(None),
 ):
     """
     Upload files, create vector store, and build context pack.
@@ -854,6 +966,12 @@ async def ingest_files(
         
         # Build context pack (required for specialist agents)
         uploaded_entries = _build_uploaded_source_entries({"file_names": file_names, "file_paths": file_paths})
+        meta_dict: Optional[dict[str, Any]] = None
+        if isinstance(files_meta, str) and files_meta.strip():
+            try:
+                meta_dict = json.loads(files_meta)
+            except Exception:
+                LOGGER.warning("files_meta provided but could not be parsed as JSON; ignoring overrides")
         confluence_entries = []
         if cql or family:
             try:
@@ -861,7 +979,7 @@ async def ingest_files(
             except Exception as e:
                 LOGGER.warning(f"Failed to fetch Confluence pages: {e}")
         
-        sources = build_source_registry(uploaded_entries, confluence_entries)
+        sources = build_source_registry(uploaded_entries, confluence_entries, files_meta=meta_dict)
         project_context: Dict[str, Any] = {
             "name": project_name,
             "customer": customer,
@@ -871,7 +989,7 @@ async def ingest_files(
         }
         context_pack = freeze_context_pack(sources, [], project_context)
         
-        # Store session data with vector store and context pack
+        # Store session data with vector store and context pack (in-memory)
         sessions[session_id] = {
             "project_name": project_name,
             "customer": customer,
@@ -879,10 +997,14 @@ async def ingest_files(
             "cql": cql,
             "file_paths": file_paths,
             "file_names": file_names,
+            "files_meta": meta_dict,
             "vector_store_id": vector_store_id,
             "context_pack": context_pack.model_dump(),
             "created_at": datetime.now().isoformat()
         }
+        # Also create a persistent session record for resumability
+        session_store.create(project_name=project_name, session_id=session_id)
+        session_store.save_snapshot(session_id, plan_json={}, context_pack=context_pack.model_dump(), vector_store_id=vector_store_id, note="post-ingest")
         
         return IngestResponse(
             session_id=session_id,
@@ -933,13 +1055,13 @@ async def draft_plan(request: DraftRequest):
             plan_json["customer"] = request.customer
         if request.family:
             plan_json["project"] = request.family
-        
-        # Render to Markdown
+
+        # Render to Markdown (initial)
         plan_markdown = render_plan_md(plan_json)
 
         uploaded_entries = _build_uploaded_source_entries(session)
         confluence_entries = _maybe_fetch_family_pages(session)
-        sources = build_source_registry(uploaded_entries, confluence_entries)
+        sources = build_source_registry(uploaded_entries, confluence_entries, files_meta=session.get("files_meta"))
         candidate_facts = _build_candidate_facts(plan_json, sources)
         project_context: Dict[str, Any] = {
             "name": project_name,
@@ -949,13 +1071,21 @@ async def draft_plan(request: DraftRequest):
             "vector_store_id": vector_store_id,
         }
         context_pack = freeze_context_pack(sources, candidate_facts, project_context)
-        
+
+        # Re-render Markdown with context sources for visualization
+        try:
+            render_payload = dict(plan_json)
+            render_payload["context_pack"] = context_pack.model_dump()
+            plan_markdown = render_plan_md(render_payload)
+        except Exception:
+            pass
+
         # Store vector_store_id in session for cleanup
         session["vector_store_id"] = vector_store_id
         session["context_pack"] = context_pack.model_dump()
         session["plan_json"] = deepcopy(plan_json)
         session["plan_markdown"] = plan_markdown
-        
+
         return DraftResponse(
             plan_json=plan_json,
             plan_markdown=plan_markdown,
@@ -1030,21 +1160,166 @@ async def run_specialist_agents(request: AgentsRunRequest):
     tasks_suggested = coordinator_result.get("tasks_suggested", [])
     qa_payload = coordinator_result.get("qa", {})
     conflicts = coordinator_result.get("conflicts", [])
-    
-    # Render markdown from the plan JSON
-    plan_markdown = render_plan_md(plan_json)
 
-    if session is not None:
+    # Fallback: if plan remains too sparse after specialists, draft a baseline from vector store
+    try:
+        qp = plan_json.get("quality_plan") or {}
+        ei = plan_json.get("engineering_instructions") or {}
+        sparse = not any([
+            plan_json.get("requirements"),
+            qp.get("ctqs"),
+            qp.get("inspection_levels"),
+            plan_json.get("materials_finishes"),
+            plan_json.get("process_flow"),
+            ei.get("exceptional_steps"),
+            ei.get("dfm_actions"),
+            ei.get("quality_routing"),
+        ])
+    except Exception:
+        sparse = False
+
+    if sparse:
+        LOGGER.info("/agents/run: Specialist outputs were sparse; invoking baseline draft fallback...")
+        try:
+            prev_plan = plan_json
+            draft_customer = (session.get("customer") if session else None) or plan_json.get("customer")
+            draft_family = (session.get("family") if session else None) or plan_json.get("project")
+            draft_project = (session.get("project_name") if session else None) or plan_json.get("project") or "Untitled Project"
+            fallback_plan = planner_agent.draft_plan(
+                vector_store_id=vector_store_id,
+                project_name=draft_project,
+                customer=draft_customer,
+                family=draft_family,
+            )
+            if isinstance(fallback_plan, dict) and fallback_plan:
+                # Preserve synthesizer outputs from coordinator if present
+                if isinstance(prev_plan, dict):
+                    if prev_plan.get("keys"):
+                        fallback_plan["keys"] = prev_plan.get("keys")
+                    if prev_plan.get("open_questions_curated") and prev_plan.get("open_questions"):
+                        fallback_plan["open_questions_curated"] = True
+                        fallback_plan["open_questions"] = prev_plan.get("open_questions")
+                plan_json = fallback_plan
+                # Reset tasks/conflicts to empty; specialists can be re-run upstream in a later pass if needed
+                tasks_suggested = tasks_suggested or []
+                conflicts = conflicts or []
+                qa_payload = qa_payload or {}
+        except Exception as exc:
+            LOGGER.warning("Baseline draft fallback failed: %s", exc)
+    
+    # Render markdown from the plan JSON (include context sources for visualization)
+    render_payload = dict(plan_json)
+    try:
+        # Non-destructive: attach context sources for renderer if not already present
+        if "context_pack" not in render_payload and context_pack_model is not None:
+            render_payload["context_pack"] = context_pack_model.model_dump()
+    except Exception:
+        pass
+    plan_markdown = render_plan_md(render_payload)
+
+    snapshot_id: Optional[str] = None
+    if session is not None and request.session_id:
         session["plan_json"] = deepcopy(plan_json)
         session["context_pack"] = context_pack_model.model_dump()
+        try:
+            rec = session_store.save_snapshot(
+                request.session_id,
+                plan_json=plan_json,
+                context_pack=context_pack_model.model_dump(),
+                vector_store_id=vector_store_id,
+                note="agents/run",
+            )
+            snapshot_id = str(len(rec.get("snapshots", []))) if rec else None
+        except Exception as e:
+            LOGGER.warning("Failed to persist snapshot: %s", e)
 
     return AgentsRunResponse(
         plan_json=plan_json,
         plan_markdown=plan_markdown,
         tasks_suggested=tasks_suggested,
+        tasks={"suggested": tasks_suggested, "created": [], "skipped": []},
         qa=qa_payload,
         conflicts=conflicts,
+        context_pack=context_pack_model.model_dump(),
+        session_id=request.session_id,
+        vector_store_id=vector_store_id,
+        snapshot_id=snapshot_id,
     )
+
+
+# --------------------
+# Session persistence endpoints
+# --------------------
+
+class SessionCreateRequest(BaseModel):
+    project_name: Optional[str] = None
+    session_id: Optional[str] = None
+
+
+class SessionCreateResponse(BaseModel):
+    session_id: str
+    project_name: Optional[str] = None
+
+
+class SessionRecordModel(BaseModel):
+    session_id: str
+    project_name: Optional[str] = None
+    created_ts: float
+    updated_ts: float
+    messages: list[dict[str, Any]] = []
+    snapshots: list[dict[str, Any]] = []
+
+
+@app.post("/sessions", response_model=SessionCreateResponse)
+async def create_session(req: SessionCreateRequest):
+    try:
+        rec = session_store.create(project_name=req.project_name, session_id=req.session_id)
+        return SessionCreateResponse(session_id=rec["session_id"], project_name=rec.get("project_name"))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create session: {e}")
+
+
+@app.get("/sessions", response_model=list[SessionRecordModel])
+async def list_sessions(limit: int = 20):
+    try:
+        items = session_store.list_recent(limit=limit)
+        return [SessionRecordModel(**item) for item in items]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list sessions: {e}")
+
+
+@app.get("/sessions/{session_id}", response_model=SessionRecordModel)
+async def get_session(session_id: str):
+    rec = session_store.get(session_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return SessionRecordModel(**rec)
+
+
+class SessionMessageRequest(BaseModel):
+    role: str
+    text: str
+    meta: Optional[dict[str, Any]] = None
+
+
+@app.post("/sessions/{session_id}/messages", response_model=SessionRecordModel)
+async def add_session_message(session_id: str, msg: SessionMessageRequest):
+    rec = session_store.add_message(session_id, msg.role, msg.text, meta=msg.meta)
+    if not rec:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return SessionRecordModel(**rec)
+
+
+class SessionRenameRequest(BaseModel):
+    project_name: str
+
+
+@app.patch("/sessions/{session_id}", response_model=SessionRecordModel)
+async def rename_session(session_id: str, payload: SessionRenameRequest):
+    rec = session_store.rename(session_id, payload.project_name)
+    if not rec:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return SessionRecordModel(**rec)
 
 
 @app.post("/publish", response_model=PublishResponse)
@@ -1130,13 +1405,26 @@ async def apply_meeting_notes(request: MeetingApplyRequest):
         changes_summary = "Meeting notes applied successfully"
         suggested_tasks_raw = _group_tasks_by_owner_hint(_generate_followup_tasks(updated_plan_json))
         suggested_tasks: List[AsanaTaskModel] = []
+        allowed_keys = {"name", "notes", "due_on", "assignee", "priority", "source_hint", "plan_url", "section", "fingerprint"}
         for task in suggested_tasks_raw:
             enriched = {**task}
             fingerprint = _fingerprint(task)
             enriched["fingerprint"] = fingerprint
-            suggested_tasks.append(
-                AsanaTaskModel(**{k: v for k, v in enriched.items() if v is not None})
-            )
+            filtered = {k: v for k, v in enriched.items() if k in allowed_keys and v is not None}
+            suggested_tasks.append(AsanaTaskModel(**filtered))
+
+        # Persist snapshot if session provided
+        try:
+            if request.session_id:
+                session_store.save_snapshot(
+                    request.session_id,
+                    plan_json=updated_plan_json,
+                    context_pack=sessions.get(request.session_id, {}).get("context_pack") or {},
+                    vector_store_id=sessions.get(request.session_id, {}).get("vector_store_id"),
+                    note="meeting/apply",
+                )
+        except Exception:
+            pass
 
         return MeetingApplyResponse(
             updated_plan_json=updated_plan_json,
@@ -1176,10 +1464,12 @@ async def grade_plan_quality(request: QAGradeRequest):
             "customer": request.plan_json.get("customer"),
         })
 
+        threshold = 70.0
         return QAGradeResponse(
             score=score,
             reasons=reasons,
             fixes=fixes,
+            blocked=score < threshold,
         )
         
     except Exception as e:
