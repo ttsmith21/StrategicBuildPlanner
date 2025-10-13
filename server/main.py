@@ -1052,7 +1052,16 @@ async def ingest_files(
             )
         
         # Build context pack (required for specialist agents)
-        uploaded_entries = _build_uploaded_source_entries({"file_names": file_names, "file_paths": file_paths})
+        # IMPORTANT: When appending, use ALL files from session, not just newly uploaded
+        if session_id in sessions and append and vector_store_id:
+            # Get accumulated file lists from session
+            all_file_names = sessions[session_id].get("file_names", [])
+            all_file_paths = sessions[session_id].get("file_paths", [])
+            uploaded_entries = _build_uploaded_source_entries({"file_names": all_file_names, "file_paths": all_file_paths})
+        else:
+            # New session or not appending - use only new files
+            uploaded_entries = _build_uploaded_source_entries({"file_names": file_names, "file_paths": file_paths})
+
         meta_dict: Optional[dict[str, Any]] = None
         if isinstance(files_meta, str) and files_meta.strip():
             try:
@@ -1065,8 +1074,8 @@ async def ingest_files(
                 confluence_entries = _maybe_fetch_family_pages({"cql": cql, "family": family})
             except Exception as e:
                 LOGGER.warning(f"Failed to fetch Confluence pages: {e}")
-        
-        # Merge newly uploaded sources into prior context if appending
+
+        # Merge all sources (uploaded + confluence) into context pack
         sources = build_source_registry(uploaded_entries, confluence_entries, files_meta=meta_dict)
         project_context: Dict[str, Any] = {
             "name": project_name or sessions.get(session_id, {}).get("project_name"),
