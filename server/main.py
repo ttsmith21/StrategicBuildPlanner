@@ -227,6 +227,17 @@ class MeetingPrepResponse(BaseModel):
     critical_questions: list[str]
 
 
+class TranscribeRequest(BaseModel):
+    """Request for audio transcription (handled as file upload, not JSON)"""
+    pass  # Audio file handled via UploadFile parameter
+
+
+class TranscribeResponse(BaseModel):
+    """Response with transcribed text"""
+    transcript_text: str
+    duration_seconds: Optional[float] = None
+
+
 class MeetingApplyRequest(BaseModel):
     session_id: Optional[str] = None
     plan_json: dict
@@ -1537,11 +1548,59 @@ async def generate_meeting_prep(request: MeetingPrepRequest):
         raise HTTPException(status_code=500, detail=f"Meeting prep generation failed: {str(e)}")
 
 
+@app.post("/transcribe", response_model=TranscribeResponse)
+async def transcribe_audio(audio_file: UploadFile = File(...)):
+    """
+    Transcribe audio file to text using OpenAI Whisper API.
+
+    Supports: MP3, MP4, MPEG, MPGA, M4A, WAV, WEBM
+    Max file size: 25 MB
+    """
+    LOGGER.info("=== /transcribe called with file: %s ===", audio_file.filename)
+
+    try:
+        # Save uploaded file temporarily
+        temp_dir = get_temp_dir()
+        temp_file_path = temp_dir / (audio_file.filename or "audio_upload")
+
+        # Write audio file
+        content = await audio_file.read()
+        temp_file_path.write_bytes(content)
+
+        try:
+            # Transcribe using Whisper
+            with open(temp_file_path, "rb") as audio:
+                transcript_response = openai_client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio,
+                    response_format="verbose_json",  # Get duration info
+                )
+
+            transcript_text = transcript_response.text
+            duration = getattr(transcript_response, "duration", None)
+
+            LOGGER.info("Transcription complete: %d chars, %.1f seconds", len(transcript_text), duration or 0)
+
+            return TranscribeResponse(
+                transcript_text=transcript_text,
+                duration_seconds=duration,
+            )
+
+        finally:
+            # Cleanup temp file
+            if temp_file_path.exists():
+                temp_file_path.unlink()
+
+    except Exception as e:
+        LOGGER.error(f"Transcription failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
+
+
 @app.post("/meeting/apply", response_model=MeetingApplyResponse)
 async def apply_meeting_notes(request: MeetingApplyRequest):
     """
     Apply meeting transcripts to existing plan.
-    
+
     Merges decisions and action items from meeting notes into the plan.
     """
     try:

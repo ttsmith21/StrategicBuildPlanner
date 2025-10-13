@@ -11,6 +11,7 @@ from openai import OpenAI
 
 from ..lib.context_pack import ContextPack
 from ..lib.schema import AgentConflict, AgentPatch, AgentTask, PurchasingPlan
+from .base_threads import run_json_schema_thread
 from .prompts import PMA_SYSTEM
 
 LOGGER = logging.getLogger(__name__)
@@ -294,41 +295,25 @@ def run_pma(
         LOGGER.info("run_pma invoked without vector store; returning blank patch.")
         return _blank_patch()
 
-    try:
-        client = _get_client()
-    except RuntimeError as exc:
-        LOGGER.warning("PMA cannot initialize OpenAI client: %s", exc)
-        return _blank_patch()
-
-    model = os.getenv("OPENAI_MODEL_PMA", os.getenv("OPENAI_MODEL_PLAN", "gpt-4.1-mini"))
+    model = os.getenv("OPENAI_MODEL_PMA", os.getenv("OPENAI_MODEL_PLAN", "gpt-5"))
     payload = {
         "plan_snapshot": plan_json,
         "context_pack": _summarize_context(plan_json, context_pack),
         "instructions": "Return only the purchasing patch JSON",
     }
 
-    request_payload: Dict[str, Any] = {
-        "model": model,
-        "temperature": 0.1,
-        "input": [
-            {"role": "system", "content": PMA_SYSTEM},
-            {
-                "role": "user",
-                "content": json.dumps(payload, ensure_ascii=False, indent=2),
-            },
-        ],
-        "tools": [{"type": "file_search"}],
-        "tool_resources": {"file_search": {"vector_store_ids": [vector_store_id]}},
-        "response_format": {"type": "json_schema", "json_schema": _PURCHASING_PATCH_SCHEMA},
-    }
-
     try:
-        response = client.responses.create(**request_payload)
+        data = run_json_schema_thread(
+            model=model,
+            system_prompt=PMA_SYSTEM,
+            user_prompt=payload,
+            json_schema=_PURCHASING_PATCH_SCHEMA,
+            vector_store_id=vector_store_id,
+            temperature=0.1,
+        )
     except Exception as exc:  # pylint: disable=broad-except
-        LOGGER.exception("PMA call failed: %s", exc)
+        LOGGER.exception("PMA threads call failed: %s", exc)
         return _blank_patch()
-
-    data = _extract_json(response)
     if not isinstance(data, dict):
         LOGGER.warning("PMA returned non-dict payload; defaulting to blank patch.")
         return _blank_patch()

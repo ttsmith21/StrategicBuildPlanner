@@ -150,7 +150,7 @@ def run_qea(vector_store_id: str | None, context_pack: ContextPack) -> List[dict
         return []
 
     client = _get_client()
-    model = os.getenv("OPENAI_MODEL_QEA", os.getenv("OPENAI_MODEL_PLAN", "gpt-4.1-mini"))
+    model = os.getenv("OPENAI_MODEL_QEA", os.getenv("OPENAI_MODEL_PLAN", "gpt-5"))
 
     context_payload = context_pack.model_dump()
     context_json = json.dumps(context_payload, ensure_ascii=False, indent=2)

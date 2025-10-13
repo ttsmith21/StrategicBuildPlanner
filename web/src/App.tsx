@@ -303,7 +303,8 @@ export default function App() {
 
   const ingestMutation = useMutation<IngestResponseData, Error, FileList>({
     mutationFn: async (files: FileList) => {
-      if (!meta.projectName.trim()) {
+      // Only require a project name when creating a new vector store
+      if (!vectorStoreId && !meta.projectName.trim()) {
         throw new Error("Project name is required before ingesting files.");
       }
 
@@ -311,8 +312,10 @@ export default function App() {
       Array.from(files).forEach((file) => {
         formData.append("files", file);
       });
-      // Required: project_name for vector store creation
-      formData.append("project_name", meta.projectName);
+      // Required only for new vector store creation
+      if (!vectorStoreId) {
+        formData.append("project_name", meta.projectName);
+      }
       if (sessionId) formData.append("session_id", sessionId);
       if (vectorStoreId) formData.append("vector_store_id", vectorStoreId);
       formData.append("append", "true");
@@ -730,6 +733,21 @@ export default function App() {
         if (last.vector_store_id) {
           setVectorStoreId(last.vector_store_id);
         }
+        // Hydrate meta fields from snapshot so uploads don't block on empty project name
+        try {
+          const pj = (last as any).plan_json?.project || (last as any).context_pack?.project?.title || meta.projectName;
+          const cust = (last as any).plan_json?.customer || (last as any).context_pack?.project?.customer || meta.customer;
+          // Use family from plan/context if available; fall back to project when reasonable
+          const fam = (last as any).plan_json?.family || (last as any).context_pack?.project?.family || (last as any).plan_json?.project || meta.family;
+          setMeta((prev) => ({
+            ...prev,
+            projectName: pj || prev.projectName,
+            customer: cust || prev.customer,
+            family: fam || prev.family,
+          }));
+        } catch {
+          // non-fatal
+        }
         setStatusMessage("Session resumed from last snapshot.");
         pushToast("success", "Session resumed.");
       } else {
@@ -824,7 +842,13 @@ export default function App() {
 
   const handleBrowse = () => {
     if (publishResult?.url) {
-      window.open(publishResult.url, "_blank", "noopener");
+      try {
+        window.open(publishResult.url, "_blank", "noopener");
+      } catch (error) {
+        pushToast("error", "Failed to open URL. Popup may be blocked.");
+      }
+    } else {
+      pushToast("error", "No URL available to open");
     }
   };
 
@@ -1025,6 +1049,7 @@ export default function App() {
           onUpload={handleUpload}
           uploading={ingestMutation.isPending}
           sessionId={sessionId}
+          vectorStoreId={vectorStoreId}
           uploadedFiles={uploadedFiles}
           selectedCustomer={selectedCustomerPage}
           selectedFamily={selectedFamilyPage}
@@ -1033,6 +1058,7 @@ export default function App() {
           onCustomerSelected={handleCustomerSelected}
           onFamilySelected={handleFamilySelected}
           onFamilyUrlPaste={handleFamilyUrlPaste}
+          pushToast={pushToast}
           />
           {sessionId && (
             <div style={{ marginTop: "0.75rem" }}>
@@ -1099,6 +1125,7 @@ export default function App() {
           disabled={isBusy}
           agentStatuses={agentStatuses}
           agentsRunning={agentsMutation.isPending}
+          pushToast={pushToast}
         />
         <ChatPanel
           messages={messages}
@@ -1132,6 +1159,7 @@ export default function App() {
           agentStatuses={agentStatuses}
           agentsRunning={agentsMutation.isPending}
           hideChat
+          pushToast={pushToast}
         />
       </div>
 

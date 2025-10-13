@@ -1,0 +1,12 @@
+{
+  "tolerances": {
+    "linear": "+/- 0.010 in unless otherwise specified",
+    "angular": "±0.5° unless otherwise specified"
+  },
+  "passivation": "none",
+  "pmi": "none",
+  "sampling_plan": {
+    "default": "ANSI/ASQ Z1.4 General Inspection Level II (AQL 1.0)"
+  },
+  "weld_mapping": "none"
+}

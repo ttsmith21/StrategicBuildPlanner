@@ -2,6 +2,7 @@ import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
 import { api } from "../api";
+import { Toast } from "./ToastContainer";
 import { AsanaProjectSummary, ChatMessage, SpecialistAgentKey } from "../types";
 
 type AgentStatus = "idle" | "pending" | "ok" | "warn";
@@ -40,6 +41,10 @@ interface ChatPanelProps {
   disabled?: boolean;
   agentStatuses: Record<SpecialistAgentKey, AgentStatus>;
   agentsRunning: boolean;
+  hideChat?: boolean;
+  showControls?: boolean;
+  hideHeader?: boolean;
+  pushToast: (type: Toast["type"], message: string) => void;
 }
 
 function useDebouncedValue<T>(value: T, delay = 300): T {
@@ -78,6 +83,10 @@ export function ChatPanel({
   disabled,
   agentStatuses,
   agentsRunning,
+  hideChat,
+  showControls = true,
+  hideHeader = false,
+  pushToast,
 }: ChatPanelProps) {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -153,7 +162,30 @@ export function ChatPanel({
   };
 
   const handleManualProjectChange = (event: ChangeEvent<HTMLInputElement>) => {
-    onManualAsanaProjectIdChange(event.target.value);
+    const raw = event.target.value.trim();
+    // Try to extract a project GID if a full Asana URL was pasted/typed
+    const extractAsanaProjectGid = (text: string): string => {
+      // common patterns:
+      // https://app.asana.com/0/{workspace_or_team}/{project_gid}
+      // https://app.asana.com/1/{workspace_or_team}/project/{project_gid}
+      // https://app.asana.com/0/project/{project_gid}
+      // or a raw numeric gid
+      const urlMatch = text.match(/https?:\/\/[^\s]+/i);
+      const source = urlMatch ? urlMatch[0] : text;
+      // match \/project\/(digits)
+      const m1 = source.match(/\/project\/(\d{6,})/);
+      if (m1 && m1[1]) return m1[1];
+      // match trailing \/(digits)
+      const m2 = source.match(/\/(\d{6,})(?:\/?$|\?)/);
+      if (m2 && m2[1]) return m2[1];
+      // fallback: only digits
+      const m3 = source.match(/^(\d{6,})$/);
+      if (m3 && m3[1]) return m3[1];
+      return text;
+    };
+
+    const gid = extractAsanaProjectGid(raw);
+    onManualAsanaProjectIdChange(gid);
     if (event.target.value.trim().length > 0) {
       setProjectSearch("");
     }
@@ -186,194 +218,228 @@ export function ChatPanel({
 
   return (
     <div className="panel">
-      <h2>Chat & Actions</h2>
+      {!hideHeader && <h2>Chat & Actions</h2>}
 
-      {errorMessage && <div className="error-banner">{errorMessage}</div>}
-      {statusMessage && <div className="success-banner">{statusMessage}</div>}
+      {showControls && (
+        <>
+          {errorMessage && <div className="error-banner">{errorMessage}</div>}
+          {statusMessage && <div className="success-banner">{statusMessage}</div>}
 
-      <section>
-        <label htmlFor="confluence-parent">Confluence Parent Page</label>
-        <input
-          id="confluence-parent"
-          type="text"
-          placeholder="Optional parent page ID"
-          value={confluenceParentId}
-          onChange={(event: ChangeEvent<HTMLInputElement>) =>
-            onConfluenceParentIdChange(event.target.value)
-          }
-        />
-      </section>
+          <section>
+            <label htmlFor="confluence-parent">Confluence Parent Page</label>
+            <input
+              id="confluence-parent"
+              type="text"
+              placeholder="Optional parent page ID"
+              value={confluenceParentId}
+              onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                onConfluenceParentIdChange(event.target.value)
+              }
+            />
+          </section>
 
-      <section>
-        <label htmlFor="asana-project-search">Asana Project</label>
-        <input
-          id="asana-project-search"
-          type="text"
-          placeholder="Search existing projects"
-          value={projectSearch}
-          onFocus={() => setProjectFocused(true)}
-          onBlur={() => setTimeout(() => setProjectFocused(false), 150)}
-          onChange={(event: ChangeEvent<HTMLInputElement>) => {
-            setProjectSearch(event.target.value);
-            if (event.target.value.trim().length > 0 && manualProjectId) {
-              onManualAsanaProjectIdChange("");
-            }
-            if (event.target.value.trim().length === 0) {
-              onSelectAsanaProject(null);
-            }
-          }}
-          disabled={disabled}
-        />
-        {showProjectMenu && (
-          <div className="autocomplete-menu">
-            {projectLoading && <div className="autocomplete-empty">Searching…</div>}
-            {!projectLoading && filteredProjects.length === 0 && (
-              <div className="autocomplete-empty">No matches yet. Try another keyword.</div>
+          <section>
+            <label htmlFor="asana-project-search">Asana Project</label>
+            <input
+              id="asana-project-search"
+              type="text"
+              placeholder="Search existing projects"
+              value={projectSearch}
+              onFocus={() => setProjectFocused(true)}
+              onBlur={() => setTimeout(() => setProjectFocused(false), 150)}
+              onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                setProjectSearch(event.target.value);
+                if (event.target.value.trim().length > 0 && manualProjectId) {
+                  onManualAsanaProjectIdChange("");
+                }
+                if (event.target.value.trim().length === 0) {
+                  onSelectAsanaProject(null);
+                }
+              }}
+              disabled={disabled}
+            />
+            {showProjectMenu && (
+              <div className="autocomplete-menu">
+                {projectLoading && <div className="autocomplete-empty">Searching…</div>}
+                {!projectLoading && filteredProjects.length === 0 && (
+                  <div className="autocomplete-empty">No matches yet. Try another keyword.</div>
+                )}
+                {!projectLoading &&
+                  filteredProjects.map((project) => (
+                    <button
+                      type="button"
+                      key={project.gid}
+                      className="autocomplete-item"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => handleSelectProject(project)}
+                    >
+                      <div>{project.name}</div>
+                      {project.team?.name && (
+                        <div className="small" style={{ opacity: 0.75 }}>
+                          Team: {project.team.name}
+                        </div>
+                      )}
+                    </button>
+                  ))}
+              </div>
             )}
-            {!projectLoading &&
-              filteredProjects.map((project) => (
+            {projectErrorMessage && (
+              <div className="error-banner" style={{ marginTop: "0.5rem" }}>
+                Asana search error: {projectErrorMessage}
+              </div>
+            )}
+            {selectedAsanaProject && (
+              <div className="badge" style={{ marginTop: "0.35rem" }}>
+                Selected project: {selectedAsanaProject.name}
+                {selectedAsanaProject.url && (
+                  <button
+                    type="button"
+                    className="link-button"
+                    style={{ marginLeft: "0.5rem" }}
+                    onClick={() => {
+                      if (!selectedAsanaProject.url) {
+                        pushToast("error", "No URL available to open");
+                        return;
+                      }
+                      try {
+                        window.open(selectedAsanaProject.url, "_blank", "noopener");
+                      } catch (error) {
+                        pushToast("error", "Failed to open URL. Popup may be blocked.");
+                      }
+                    }}
+                  >
+                    Open ↗
+                  </button>
+                )}
                 <button
                   type="button"
-                  key={project.gid}
-                  className="autocomplete-item"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => handleSelectProject(project)}
+                  className="link-button"
+                  style={{ marginLeft: "0.5rem" }}
+                  onClick={() => {
+                    onSelectAsanaProject(null);
+                    setProjectSearch("");
+                  }}
                 >
-                  <div>{project.name}</div>
-                  {project.team?.name && (
-                    <div className="small" style={{ opacity: 0.75 }}>
-                      Team: {project.team.name}
-                    </div>
-                  )}
+                  Clear
                 </button>
+              </div>
+            )}
+            <label htmlFor="asana-project-id" style={{ marginTop: "0.75rem" }}>
+              Or paste project GID manually
+            </label>
+            <input
+              id="asana-project-id"
+              type="text"
+              placeholder="asana-project-gid"
+              value={manualProjectId}
+              onChange={handleManualProjectChange}
+              onPaste={(e) => {
+                // Ensure pasted URLs are parsed into a pure GID value
+                const pasted = e.clipboardData.getData("text");
+                if (pasted) {
+                  e.preventDefault();
+                  const synthetic = { target: { value: pasted } } as unknown as ChangeEvent<HTMLInputElement>;
+                  handleManualProjectChange(synthetic);
+                }
+              }}
+              disabled={disabled}
+            />
+            <label htmlFor="asana-project-name" style={{ marginTop: "0.75rem" }}>
+              New project name
+            </label>
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              <input
+                id="asana-project-name"
+                type="text"
+                placeholder="APQP — Customer — Family"
+                value={newProjectName}
+                onChange={(event: ChangeEvent<HTMLInputElement>) => onNewProjectNameChange(event.target.value)}
+                disabled={disabled || creatingProject}
+              />
+              <button
+                type="button"
+                onClick={() => onCreateProject()}
+                disabled={disabled || creatingProject || !newProjectName.trim()}
+              >
+                {creatingProject ? "Creating…" : "Create"}
+              </button>
+            </div>
+          </section>
+
+          <section>
+            <div className="section-header">
+              <span>Specialist Agents</span>
+              {agentsRunning && <span className="small">Running…</span>}
+            </div>
+            <div className="agent-status-list">
+              {agentStatusItems.map((item) => (
+                <div key={item.key} className={`agent-status agent-${agentStatuses[item.key]}`}>
+                  <span className="agent-icon">{renderStatusIcon(agentStatuses[item.key])}</span>
+                  <span>{item.label}</span>
+                </div>
               ))}
-          </div>
-        )}
-        {projectErrorMessage && (
-          <div className="error-banner" style={{ marginTop: "0.5rem" }}>
-            Asana search error: {projectErrorMessage}
-          </div>
-        )}
-        {selectedAsanaProject && (
-          <div className="badge" style={{ marginTop: "0.35rem" }}>
-            Selected project: {selectedAsanaProject.name}
-            {selectedAsanaProject.url && (
+            </div>
+          </section>
+
+          <section className="action-grid">
+            {actions.map((action) => (
+              <button
+                key={action.label}
+                type="button"
+                className={action.variant === "secondary" ? "secondary" : ""}
+                onClick={() => action.onClick()}
+                disabled={action.disabled || disabled}
+              >
+                {action.label}
+              </button>
+            ))}
+          </section>
+
+          {publishUrl && (
+            <div className="success-banner">
+              Published to Confluence: 
               <button
                 type="button"
                 className="link-button"
-                style={{ marginLeft: "0.5rem" }}
-                onClick={() => window.open(selectedAsanaProject.url!, "_blank", "noopener")}
+                onClick={() => {
+                  if (!publishUrl) {
+                    pushToast("error", "No URL available to open");
+                    return;
+                  }
+                  try {
+                    window.open(publishUrl, "_blank", "noopener");
+                  } catch (error) {
+                    pushToast("error", "Failed to open URL. Popup may be blocked.");
+                  }
+                }}
               >
-                Open ↗
+                Open Page ↗
               </button>
-            )}
-            <button
-              type="button"
-              className="link-button"
-              style={{ marginLeft: "0.5rem" }}
-              onClick={() => {
-                onSelectAsanaProject(null);
-                setProjectSearch("");
-              }}
-            >
-              Clear
-            </button>
-          </div>
-        )}
-        <label htmlFor="asana-project-id" style={{ marginTop: "0.75rem" }}>
-          Or paste project GID manually
-        </label>
-        <input
-          id="asana-project-id"
-          type="text"
-          placeholder="asana-project-gid"
-          value={manualProjectId}
-          onChange={handleManualProjectChange}
-          disabled={disabled}
-        />
-        <label htmlFor="asana-project-name" style={{ marginTop: "0.75rem" }}>
-          New project name
-        </label>
-        <div style={{ display: "flex", gap: "0.5rem" }}>
-          <input
-            id="asana-project-name"
-            type="text"
-            placeholder="APQP — Customer — Family"
-            value={newProjectName}
-            onChange={(event: ChangeEvent<HTMLInputElement>) => onNewProjectNameChange(event.target.value)}
-            disabled={disabled || creatingProject}
-          />
-          <button
-            type="button"
-            onClick={() => onCreateProject()}
-            disabled={disabled || creatingProject || !newProjectName.trim()}
-          >
-            {creatingProject ? "Creating…" : "Create"}
-          </button>
-        </div>
-      </section>
-
-      <section>
-        <div className="section-header">
-          <span>Specialist Agents</span>
-          {agentsRunning && <span className="small">Running…</span>}
-        </div>
-        <div className="agent-status-list">
-          {agentStatusItems.map((item) => (
-            <div key={item.key} className={`agent-status agent-${agentStatuses[item.key]}`}>
-              <span className="agent-icon">{renderStatusIcon(agentStatuses[item.key])}</span>
-              <span>{item.label}</span>
             </div>
-          ))}
-        </div>
-      </section>
+          )}
 
-      <section className="action-grid">
-        {actions.map((action) => (
-          <button
-            key={action.label}
-            type="button"
-            className={action.variant === "secondary" ? "secondary" : ""}
-            onClick={() => action.onClick()}
-            disabled={action.disabled || disabled}
-          >
-            {action.label}
-          </button>
-        ))}
-      </section>
-
-      {publishUrl && (
-        <div className="success-banner">
-          Published to Confluence: 
-          <button
-            type="button"
-            className="link-button"
-            onClick={() => window.open(publishUrl, "_blank", "noopener")}
-          >
-            Open Page ↗
-          </button>
-        </div>
+          {qaSummary && <div className="success-banner">QA: {qaSummary}</div>}
+          {qaBlocked && (
+            <div className="warning-banner">
+              {qaFixes && qaFixes.length > 0 ? (
+                <>
+                  QA blocking fixes:
+                  <ul>
+                    {qaFixes.map((fix, index) => (
+                      <li key={`qa-fix-${index}`}>{fix}</li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <span>QA is blocking publish. Address outstanding issues before pushing to Confluence.</span>
+              )}
+            </div>
+          )}
+          {asanaStatus && <div className="success-banner">Asana: {asanaStatus}</div>}
+        </>
       )}
 
-    {qaSummary && <div className="success-banner">QA: {qaSummary}</div>}
-    {qaBlocked && (
-      <div className="warning-banner">
-        {qaFixes && qaFixes.length > 0 ? (
-          <>
-            QA blocking fixes:
-            <ul>
-              {qaFixes.map((fix, index) => (
-                <li key={`qa-fix-${index}`}>{fix}</li>
-              ))}
-            </ul>
-          </>
-        ) : (
-          <span>QA is blocking publish. Address outstanding issues before pushing to Confluence.</span>
-        )}
-      </div>
-    )}
-    {asanaStatus && <div className="success-banner">Asana: {asanaStatus}</div>}
-
+      {!hideChat && (
       <div className="chat-messages">
         {messages.length === 0 ? (
           <span className="small">No messages yet. Ask the planner to update sections.</span>
@@ -391,20 +457,23 @@ export function ChatPanel({
           ))
         )}
       </div>
+      )}
 
-      <form onSubmit={handleSubmit} style={{ marginTop: "0.75rem" }}>
-        <label htmlFor="chat-message">Chat with Planner</label>
-        <textarea
-          id="chat-message"
-          placeholder="Capture latest fixture updates, decisions, or TODOs that need to roll into the plan."
-          value={input}
-          onChange={(event) => onInputChange(event.target.value)}
-          disabled={disabled}
-        />
-        <button type="submit" disabled={sending || disabled} style={{ marginTop: "0.75rem" }}>
-          {sending ? "Sending…" : "Send Message"}
-        </button>
-      </form>
+      {!hideChat && (
+        <form onSubmit={handleSubmit} style={{ marginTop: "0.75rem" }}>
+          <label htmlFor="chat-message">Chat with Planner</label>
+          <textarea
+            id="chat-message"
+            placeholder="Capture latest fixture updates, decisions, or TODOs that need to roll into the plan."
+            value={input}
+            onChange={(event) => onInputChange(event.target.value)}
+            disabled={false}
+          />
+          <button type="submit" disabled={sending || disabled} style={{ marginTop: "0.75rem" }}>
+            {sending ? "Sending…" : "Send Message"}
+          </button>
+        </form>
+      )}
     </div>
   );
 }

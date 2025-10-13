@@ -11,6 +11,7 @@ from openai import OpenAI
 
 from ..lib.context_pack import ContextPack
 from ..lib.schema import AgentConflict, AgentPatch, AgentTask, EngineeringInstructions
+from .base_threads import run_json_schema_thread
 from .prompts import EMA_SYSTEM
 
 LOGGER = logging.getLogger(__name__)
@@ -30,13 +31,11 @@ _ENGINEERING_PATCH_SCHEMA: Dict[str, Any] = {
                     "engineering_instructions": {
                         "type": "object",
                         "required": [
-                            "routing",
-                            "fixtures",
-                            "programs",
-                            "ctqs_for_routing",
-                            "open_items",
+                            "exceptional_steps",
+                            "dfm_actions",
+                            "quality_routing",
                         ],
-                        "additionalProperties": False,
+                        "additionalProperties": True,
                         "properties": {
                             "routing": {
                                 "type": "array",
@@ -135,6 +134,88 @@ _ENGINEERING_PATCH_SCHEMA: Dict[str, Any] = {
                             "open_items": {
                                 "type": "array",
                                 "items": {"type": "string"},
+                            },
+                            "exceptional_steps": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "required": ["op_no", "workcenter"],
+                                    "additionalProperties": False,
+                                    "properties": {
+                                        "op_no": {"type": "integer"},
+                                        "workcenter": {"type": "string"},
+                                        "input": {"type": ["string", "null"]},
+                                        "program": {"type": ["string", "null"]},
+                                        "notes": {"type": "array", "items": {"type": "string"}},
+                                        "qc": {"type": "array", "items": {"type": "string"}},
+                                        "sources": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "required": ["source_id"],
+                                                "additionalProperties": False,
+                                                "properties": {
+                                                    "source_id": {"type": "string"},
+                                                    "page_ref": {"type": ["string", "null"]},
+                                                    "passage_sha": {"type": ["string", "null"]},
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                            "dfm_actions": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "required": ["action"],
+                                    "additionalProperties": False,
+                                    "properties": {
+                                        "action": {"type": "string"},
+                                        "target": {"type": ["string", "null"]},
+                                        "rationale": {"type": ["string", "null"]},
+                                        "sources": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "required": ["source_id"],
+                                                "additionalProperties": False,
+                                                "properties": {
+                                                    "source_id": {"type": "string"},
+                                                    "page_ref": {"type": ["string", "null"]},
+                                                    "passage_sha": {"type": ["string", "null"]},
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                            "quality_routing": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "required": ["op_no", "workcenter", "quality_operation"],
+                                    "additionalProperties": False,
+                                    "properties": {
+                                        "op_no": {"type": "integer"},
+                                        "workcenter": {"type": "string"},
+                                        "quality_operation": {"type": "string"},
+                                        "notes": {"type": "array", "items": {"type": "string"}},
+                                        "sources": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "required": ["source_id"],
+                                                "additionalProperties": False,
+                                                "properties": {
+                                                    "source_id": {"type": "string"},
+                                                    "page_ref": {"type": ["string", "null"]},
+                                                    "passage_sha": {"type": ["string", "null"]},
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
                             },
                         },
                     }
@@ -336,6 +417,9 @@ def _normalize_patch(payload: Any) -> Dict[str, Any]:
         "programs": engineering.get("programs", []),
         "ctqs_for_routing": engineering.get("ctqs_for_routing", []),
         "open_items": engineering.get("open_items", []),
+        "exceptional_steps": engineering.get("exceptional_steps", []),
+        "dfm_actions": engineering.get("dfm_actions", []),
+        "quality_routing": engineering.get("quality_routing", []),
     }).model_dump()
     return normalized
 
@@ -351,43 +435,26 @@ def run_ema(
         LOGGER.info("run_ema invoked without vector store; returning blank patch.")
         return _blank_patch()
 
-    try:
-        client = _get_client()
-    except RuntimeError as exc:
-        LOGGER.warning("EMA cannot initialize OpenAI client: %s", exc)
-        return _blank_patch()
-
-    model = os.getenv("OPENAI_MODEL_EMA", os.getenv("OPENAI_MODEL_PLAN", "gpt-4.1-mini"))
+    model = os.getenv("OPENAI_MODEL_EMA", os.getenv("OPENAI_MODEL_PLAN", "gpt-5"))
     context_summary = _summarize_context(plan_json, context_pack)
-
     user_payload = {
         "plan_snapshot": plan_json,
         "context_summary": context_summary,
         "instructions": "Return only the engineering patch JSON. Do not modify other plan sections.",
     }
 
-    request_payload: Dict[str, Any] = {
-        "model": model,
-        "temperature": 0.15,
-        "input": [
-            {"role": "system", "content": EMA_SYSTEM},
-            {
-                "role": "user",
-                "content": json.dumps(user_payload, ensure_ascii=False, indent=2),
-            },
-        ],
-        "tools": [{"type": "file_search"}],
-        "tool_resources": {"file_search": {"vector_store_ids": [vector_store_id]}},
-        "response_format": {"type": "json_schema", "json_schema": _ENGINEERING_PATCH_SCHEMA},
-    }
-
     try:
-        response = client.responses.create(**request_payload)
+        data = run_json_schema_thread(
+            model=model,
+            system_prompt=EMA_SYSTEM,
+            user_prompt=user_payload,
+            json_schema=_ENGINEERING_PATCH_SCHEMA,
+            vector_store_id=vector_store_id,
+            temperature=0.15,
+        )
     except Exception as exc:  # pylint: disable=broad-except
-        LOGGER.exception("EMA call failed: %s", exc)
+        LOGGER.exception("EMA threads call failed: %s", exc)
         return _blank_patch()
-
-    data = _extract_json(response)
     if not isinstance(data, dict):
         LOGGER.warning("EMA returned non-dict payload; defaulting to blank patch.")
         return _blank_patch()

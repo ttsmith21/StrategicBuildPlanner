@@ -76,8 +76,8 @@ Data:
 
 ---
 
-### ✅ Test 3: POST /draft - Plan Generation
-**Requirement:** Build vector store, generate plan JSON + Markdown
+### ⚠️ Test 3: POST /draft - Plan Generation (Deprecated)
+**Note:** `/draft` remains for backward-compatibility but is deprecated. Prefer `/agents/run`, which builds or refines the plan using specialist agents.
 
 **Implementation Verified:**
 ```python
@@ -97,14 +97,14 @@ Data:
 }
 ```
 
-**Code Flow:**
-1. ✅ Retrieves session from in-memory store
-2. ✅ Creates OpenAI Vector Store with uploaded files (`create_vector_store()`)
-3. ✅ Generates plan using Responses API with structured outputs (`generate_plan()`)
-4. ✅ Renders plan to Markdown using Jinja2 template (`render_plan_md()`)
-5. ✅ Returns complete plan JSON, Markdown, and vector store ID
+**Legacy Code Flow:**
+1. Retrieves session from in-memory store
+2. Creates OpenAI Vector Store with uploaded files (`create_vector_store()`)
+3. Generates plan via generalist agent
+4. Renders plan to Markdown using Jinja2 template (`render_plan_md()`)
+5. Returns plan JSON, Markdown, and vector store ID
 
-**Result:** **PASSED** ✅ (Implementation Complete)
+**Status:** ⚠️ Deprecated — Use `/agents/run` for current workflow.
 
 ---
 
@@ -257,7 +257,7 @@ Data:
 
 **server/lib/vectorstore.py:**
 - ✅ `create_vector_store()` - Upload files to OpenAI Vector Store
-- ✅ `generate_plan()` - Generate plan with Responses API + structured outputs
+- ❌ `generate_plan()` - Removed; plan generation now handled by agents
 - ✅ `delete_vector_store()` - Cleanup vector stores
 
 ---
@@ -269,7 +269,7 @@ Data:
 | GET / | ✅ PASSED | Returns API information |
 | GET /health | ✅ PASSED | Returns health status |
 | POST /ingest | ✅ PASSED | Uploads files, returns session ID |
-| POST /draft | ✅ PASSED | Generates plan JSON + Markdown + vector_store_id |
+| POST /draft | ⚠️ DEPRECATED | Use `/agents/run`; legacy path still available |
 | POST /publish | ✅ PASSED | Creates Confluence page, returns URL |
 | POST /meeting/apply | ✅ PASSED | Merges meeting notes into plan |
 | POST /qa/grade | ✅ PASSED | Grades plan on 5 dimensions |

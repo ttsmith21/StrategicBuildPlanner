@@ -48,7 +48,7 @@ npm run preview
 1. **Upload panel** (left): provide project metadata and ingest one or more source files. The API returns a `session_id` used for subsequent drafts.
 2. **Plan preview** (center): shows Markdown and JSON representations of the latest plan along with QA metrics and Asana task summaries.
 3. **ChatKit panel** (right): send natural-language updates, then trigger actions using the ChatKit-styled buttons:
-   - Draft → `/draft`
+   - Draft → `/agents/run` (specialist agents; `/draft` is deprecated)
    - Apply Meeting Notes → `/meeting/apply`
    - Publish → `/publish`
    - Create Asana Tasks → `/asana/tasks`

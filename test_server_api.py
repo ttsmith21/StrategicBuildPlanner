@@ -16,8 +16,8 @@ from pathlib import Path
 # Configuration
 BASE_URL = "http://localhost:8001"
 TEST_FILES = [
-    "inputs/sample_project_test.txt",
-    "meetings/kickoff.txt"
+    "inputs/test_project_sample.txt",  # corrected filename present in repo
+    "meetings/kickoff.txt",
 ]
 
 def print_header(text):
@@ -26,10 +26,9 @@ def print_header(text):
     print(f"{'='*70}\n")
 
 def print_result(success, message):
-    status = "✓" if success else "✗"
-    color = "\033[92m" if success else "\033[91m"
-    reset = "\033[0m"
-    print(f"{color}{status}{reset} {message}")
+    # Use ASCII markers to avoid Windows cp1252 encoding issues in terminals
+    status = "[PASS]" if success else "[FAIL]"
+    print(f"{status} {message}")
 
 def test_health():
     """Test health endpoint"""
@@ -96,7 +95,7 @@ def test_run_agents(ingest_result):
         if context_pack:
             payload["context_pack"] = context_pack
 
-        print("  ⏳ Running specialist agents swarm (this may take 60-90 seconds)...")
+        print("  Running specialist agents swarm (this may take 60-90 seconds)...")
         response = requests.post(
             f"{BASE_URL}/agents/run",
             json=payload,
@@ -129,7 +128,7 @@ def test_qa_grade(plan_result):
             "plan_json": plan_result['plan_json']
         }
         
-        print("  ⏳ Grading plan quality...")
+        print("  Grading plan quality...")
         response = requests.post(
             f"{BASE_URL}/qa/grade",
             json=payload,
@@ -167,7 +166,7 @@ def test_meeting_apply(plan_result):
             "transcript_texts": [meeting_text]
         }
         
-        print("  ⏳ Applying meeting notes to plan...")
+        print("  Applying meeting notes to plan...")
         response = requests.post(
             f"{BASE_URL}/meeting/apply",
             json=payload,
@@ -203,7 +202,7 @@ def test_publish(plan_result):
             "markdown": plan_result['plan_markdown']
         }
         
-        print("  ⏳ Publishing to Confluence...")
+        print("  Publishing to Confluence...")
         response = requests.post(
             f"{BASE_URL}/publish",
             json=payload,
@@ -261,14 +260,14 @@ def main():
     # 1. Health check
     results['health'] = test_health()
     if not results['health']:
-        print("\n❌ Server not responding. Please start server first:")
+        print("\n[FAIL] Server not responding. Please start server first:")
         print("   python run_server.py")
         sys.exit(1)
     
     # 2. Ingest
     ingest_result = test_ingest()
     if not ingest_result:
-        print("\n❌ Ingest failed. Cannot continue tests.")
+        print("\n[FAIL] Ingest failed. Cannot continue tests.")
         sys.exit(1)
     results['ingest'] = True
     session_id = ingest_result['session_id']
@@ -276,7 +275,7 @@ def main():
     # 3. Specialist agents orchestration
     plan_result = test_run_agents(ingest_result)
     if not plan_result:
-        print("\n❌ Specialist agents failed. Cannot continue tests.")
+        print("\n[FAIL] Specialist agents failed. Cannot continue tests.")
         sys.exit(1)
     results['agents'] = True
     
@@ -305,9 +304,9 @@ def main():
     
     print(f"\n{'='*70}")
     if passed == total:
-        print(f"  🎉 ALL TESTS PASSED ({passed}/{total})")
+        print(f"  ALL TESTS PASSED ({passed}/{total})")
     else:
-        print(f"  ⚠ {passed}/{total} tests passed")
+        print(f"  {passed}/{total} tests passed")
     print(f"{'='*70}\n")
     
     return 0 if passed == total else 1

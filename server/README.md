@@ -45,6 +45,24 @@ CONFLUENCE_EMAIL=your-email@company.com
 CONFLUENCE_API_TOKEN=your-token
 CONFLUENCE_SPACE_KEY=YOUR_SPACE
 CONFLUENCE_PARENT_PAGE_ID=123456789
+
+# Asana (optional - enables /asana/projects search and task creation)
+ASANA_ACCESS_TOKEN=1/your_personal_access_token
+ASANA_WORKSPACE_GID=14635052193302
+# ASANA_BASE_URL=https://app.asana.com/api/1.0
+
+```
+
+How to find Asana IDs:
+
+- Workspace/Organization GID: visible in Asana URLs, e.g. `https://app.asana.com/1/14635052193302/…` → `14635052193302`
+- Project GID: from a project URL like `https://app.asana.com/1/14635052193302/project/1211540301112320` → `1211540301112320`
+
+Once set, verify with:
+
+```text
+GET http://localhost:8001/auth/asana/check   # should return { "ok": true }
+GET http://localhost:8001/asana/projects?q=demo
 ```
 
 ## Running the Server
@@ -107,8 +125,8 @@ curl -X POST http://localhost:8001/ingest \
 
 ---
 
-### 2. **POST /draft**
-Generate Strategic Build Plan from ingested files.
+### 2. **POST /draft** (Deprecated)
+Generate Strategic Build Plan from ingested files (legacy single-agent path). Prefer `/agents/run`.
 
 **Request Body:**
 ```json
@@ -130,14 +148,36 @@ Generate Strategic Build Plan from ingested files.
 }
 ```
 
+Note: This endpoint remains for backward compatibility but will be removed in a future release.
+### 2b. **POST /agents/run**
+Run specialist agents to build or refine a Strategic Build Plan.
+
+**Request Body:**
+```json
+{
+  "session_id": "uuid-from-ingest",
+  "project_name": "ACME Bracket Manufacturing",
+  "plan_json": { /* optional existing plan to refine */ }
+}
+```
+
+**Response:**
+```json
+{
+  "plan_json": { /* Merged plan from specialists */ },
+  "tasks": [ /* suggested follow-ups with fingerprints */ ],
+  "qa": { /* SBP-QA verdict */ },
+  "context_pack": { /* canonicalized facts & sources */ }
+}
+```
+
 **cURL Example:**
 ```bash
-curl -X POST http://localhost:8001/draft \
+curl -X POST http://localhost:8001/agents/run \
   -H "Content-Type: application/json" \
   -d '{
     "session_id": "your-session-id",
-    "project_name": "ACME Bracket Test",
-    "customer": "ACME Corporation"
+    "project_name": "ACME Bracket Test"
   }'
 ```
 

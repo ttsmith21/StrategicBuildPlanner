@@ -62,34 +62,39 @@ curl -X POST http://localhost:8001/ingest \
 
 ---
 
-### 3. Generate Plan
+### 3. Generate Plan (via Specialist Agents)
+Note: The legacy "/draft" flow is deprecated. Use this unified /agents/run entrypoint.
 ```bash
-POST /draft
+POST /agents/run
 Content-Type: application/json
 
 Body:
 {
   "session_id": "uuid-from-ingest",
-  "project_name": "ACME Bracket Manufacturing",
-  "customer": "ACME Corporation"
+  "plan_json": { /* optional: seed or refine an existing plan */ },
+  "context_pack": { /* optional: override, else resolved from session */ }
 }
 
 Response:
 {
-  "plan_json": { /* Strategic Build Plan */ },
+  "plan_json": { /* Strategic Build Plan with specialist patches applied */ },
   "plan_markdown": "# Strategic Build Plan...",
-  "source_file_names": ["drawing.pdf"],
-  "vector_store_id": "vs_abc123"
+  "qa": { "score": 0, "blocked": true, "reasons": [], "fixes": [] },
+  "tasks_suggested": [ { "name": "...", "owner_hint": "QA", "fingerprint": "..." } ],
+  "tasks": { "suggested": [], "created": [], "skipped": [] },
+  "conflicts": [ { "topic": "...", "issue": "...", "citations": [] } ],
+  "context_pack": { /* frozen context */ },
+  "vector_store_id": "vs_abc123",
+  "session_id": "uuid-from-ingest"
 }
 ```
 
 **cURL:**
 ```bash
-curl -X POST http://localhost:8001/draft \
+curl -X POST http://localhost:8001/agents/run \
   -H "Content-Type: application/json" \
   -d '{
-    "session_id": "YOUR_SESSION_ID",
-    "project_name": "ACME Bracket Manufacturing"
+    "session_id": "YOUR_SESSION_ID"
   }'
 ```
 
@@ -167,6 +172,7 @@ Body:
 Response:
 {
   "score": 82.5,
+  "blocked": false,
   "reasons": [
     "APQP sections largely complete but tooling plan lacks finish partner",
     "Risk register references owners and due dates",
@@ -182,7 +188,7 @@ Response:
 
 ---
 
-### 7. Run Specialist Agents
+### 7. Run Specialist Agents (detailed)
 ```bash
 POST /agents/run
 Content-Type: application/json
@@ -197,9 +203,11 @@ Body:
 Response:
 {
   "plan_json": { /* Patched plan JSON with quality/purchasing/schedule/engineering sections */ },
+  "plan_markdown": "# Strategic Build Plan...",
   "tasks_suggested": [
     { "name": "Kick off PPAP control plan", "owner_hint": "QA", "fingerprint": "..." }
   ],
+  "tasks": { "suggested": [], "created": [], "skipped": [] },
   "qa": {
     "score": 91.2,
     "blocked": false,
@@ -212,7 +220,10 @@ Response:
       "issue": "Quality requests passivation hold while purchasing lists vendor lead > 3 weeks",
       "citations": [{ "source_id": "drawing-102A" }]
     }
-  ]
+  ],
+  "context_pack": { /* frozen context */ },
+  "vector_store_id": "vs_abc123",
+  "session_id": "uuid-from-ingest"
 }
 ```
 
@@ -259,7 +270,7 @@ curl -X DELETE http://localhost:8001/session/YOUR_SESSION_ID
 
 ---
 
-## 🔄 Full Workflow Example
+## 🔄 Full Workflow Example (Unified)
 
 ```bash
 # 1. Upload files
@@ -267,16 +278,16 @@ SESSION_ID=$(curl -X POST http://localhost:8001/ingest \
   -F "files=@inputs/drawing.pdf" \
   -F "customer=ACME Corp" | jq -r '.session_id')
 
-# 2. Generate plan
-curl -X POST http://localhost:8001/draft \
+# 2. Run specialists (generate or refine plan)
+curl -X POST http://localhost:8001/agents/run \
   -H "Content-Type: application/json" \
-  -d "{\"session_id\":\"$SESSION_ID\",\"project_name\":\"ACME Bracket\"}" \
+  -d "{\"session_id\":\"$SESSION_ID\"}" \
   > plan.json
 
-# 3. Grade quality
+# 3. Grade quality (optional separate call; /agents/run already returns qa)
 curl -X POST http://localhost:8001/qa/grade \
   -H "Content-Type: application/json" \
-  -d @plan.json | jq '.overall_score'
+  -d @plan.json | jq '.score'
 
 # 4. Publish to Confluence
 MARKDOWN=$(jq -r '.plan_markdown' plan.json)
@@ -326,7 +337,7 @@ function StrategicBuildPlanner() {
   };
   
   const handleGenerate = async () => {
-    const res = await fetch('http://localhost:8001/draft', {
+  const res = await fetch('http://localhost:8001/agents/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

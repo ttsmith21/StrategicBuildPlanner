@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import os
 from pathlib import Path
 
 _PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
@@ -76,8 +77,30 @@ Instructions:
 """.strip()
 
 
-EMA_SYSTEM = load_prompt("ema.txt")
-QMA_SYSTEM = load_prompt("qma.txt")
-PMA_SYSTEM = load_prompt("pma.txt")
+from ..lib.standards import get_standards
+
+_ENHANCED = os.getenv("SBP_PROMPTS_PROFILE", "enhanced").lower() != "legacy"
+_STDS = get_standards()
+
+def _append_comparison(note: str) -> str:
+  if not _ENHANCED:
+    return note
+  return (
+    note
+    + "\n\n"  # Comparison appendix
+    + "Comparison Baseline (Northern Standards):\n"
+    + f"- materials: {', '.join(_STDS.get('materials', []))}\n"
+    + f"- finishes: {', '.join(_STDS.get('finishes', []))}\n"
+    + f"- tolerances: {', '.join(_STDS.get('tolerances', []))}\n"
+    + f"- weld code: {', '.join(_STDS.get('weld_codes', []))}\n"
+    + f"- inspection: {', '.join(_STDS.get('inspection', []))}\n"
+    + f"- traceability: {', '.join(_STDS.get('traceability', []))}\n"
+    + f"- coatings: {', '.join(_STDS.get('coatings', []))}\n"
+    + "\nCompare observed callouts/clauses to this baseline and emit only meaningful deltas that impact manufacturability, quality, cost, or schedule."
+  )
+
+EMA_SYSTEM = _append_comparison(load_prompt("ema.txt"))
+QMA_SYSTEM = _append_comparison(load_prompt("qma.txt"))
+PMA_SYSTEM = _append_comparison(load_prompt("pma.txt"))
 SCA_SYSTEM = load_prompt("sca.txt")
 SBPQA_SYSTEM = load_prompt("sbpqa.txt")

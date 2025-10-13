@@ -67,32 +67,7 @@ CONFLUENCE_PARENT_PAGE_ID=123456789
 
 ## 📖 Usage Examples
 
-### Basic: Local Files Only
-
-```powershell
-python apqp_starter.py `
-  --project "ACME Bracket Rev B" `
-  --files .\inputs\PO.pdf .\inputs\Quote.pdf .\inputs\Drawing.pdf
-```
-
-### With Confluence Context
-
-```powershell
-python apqp_starter.py `
-  --project "XYZ Enclosure" `
-  --files .\inputs\PO.pdf .\inputs\Spec.pdf `
-  --cql 'space = KB AND label = "customer-acme" AND type = page'
-```
-
-### With Meeting Transcript + Publish
-
-```powershell
-python apqp_starter.py `
-  --project "Project Alpha" `
-  --files .\inputs\*.pdf `
-  --meeting .\meetings\kickoff-transcript.txt `
-  --publish
-```
+Use the FastAPI server endpoints below. The legacy CLI (`apqp_starter.py`) is deprecated.
 
 ---
 
@@ -104,7 +79,7 @@ StrategicBuildPlanner/
 ├── inputs/                     # Place your PDFs here
 ├── outputs/                    # Generated plans (MD + JSON)
 ├── meetings/                   # Meeting transcripts (optional)
-├── apqp_starter.py             # Main application
+├── apqp_starter.py             # Deprecated legacy CLI (use server/ API instead)
 ├── requirements.txt            # Dependencies
 ├── .env                        # Your secrets (not in git)
 ├── .env.example                # Template
@@ -158,6 +133,18 @@ Once a draft exists, call `POST /agents/run` to orchestrate three specialist pas
 - **EMA** (Engineering Methods Assistant) proposes routing, fixture, and CTQ updates.
 
 The endpoint returns the patched plan, suggested tasks, and a QA gate. If the score falls below 85, the UI blocks publishing until the recommended fixes are addressed.
+
+---
+
+## Code map
+
+- API server: `server/main.py` (FastAPI endpoints and orchestration)
+- Specialist agents: `server/agents/` (QMA, PMA, SCA, EMA, SBP-QA) and `server/agents/coordinator.py`
+- Shared libs: `server/lib/` (`schema.py`, `context_pack.py`, `rendering.py`, `confluence.py`, `asana.py`, `vectorstore.py`)
+- Agent wrapper (single entry to OpenAI): `agent/agent.py`; tools under `agent/tools/`
+- Web UI: `web/` (React + Vite); API client in `web/src/api.ts`
+- Tests: `test_server_api.py` (end-to-end)
+- Deprecated/legacy: `apqp_starter.py` (CLI, deprecated), `backend/` (legacy, deprecated), archived copies in `archive/`
 
 ---
 
@@ -282,8 +269,8 @@ Edit the `JINJA_TEMPLATE` for custom Markdown formatting.
 - [ ] Auto-labeling of published pages
 
 ### Phase 3 (Advanced)
-- [x] **FastAPI REST API Server** - Service facade over CLI (`server/main.py`)
-- [x] **API Endpoints**: `/ingest`, `/draft`, `/publish`, `/meeting/apply`, `/qa/grade`
+- [x] **FastAPI REST API Server** - Primary interface (`server/main.py`)
+- [x] **API Endpoints**: `/ingest`, `/agents/run`, `/publish`, `/meeting/apply`, `/qa/grade`
 - [x] **Interactive API Docs** - Swagger UI at `/docs`
 - [ ] Realtime API for live meeting assistance
 - [ ] Audio transcription (Whisper API)
@@ -310,7 +297,8 @@ python run_server.py
 |----------|--------|-------------|
 | `/health` | GET | Health check |
 | `/ingest` | POST | Upload files, create session |
-| `/draft` | POST | Generate Strategic Build Plan |
+| `/draft` | POST | Generate Strategic Build Plan (deprecated; prefer `/agents/run`) |
+| `/agents/run` | POST | Run specialist agents to build/refine the plan |
 | `/publish` | POST | Publish plan to Confluence |
 | `/meeting/apply` | POST | Apply meeting notes to plan |
 | `/qa/grade` | POST | Grade plan quality (5 dimensions) |
@@ -324,8 +312,8 @@ curl -X POST http://localhost:8001/ingest \
   -F "files=@inputs/drawing.pdf" \
   -F "customer=ACME Corp"
 
-# 2. Generate plan (use session_id from step 1)
-curl -X POST http://localhost:8001/draft \
+# 2. Generate plan (specialist agents; use session_id from step 1)
+curl -X POST http://localhost:8001/agents/run \
   -H "Content-Type: application/json" \
   -d '{"session_id":"YOUR_SESSION_ID","project_name":"ACME Bracket"}'
 

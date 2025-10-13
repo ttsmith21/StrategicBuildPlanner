@@ -13,35 +13,42 @@ if (-not (Test-Path $sampleFile)) {
 
 Write-Host "Running smoke script against $BaseUrl" -ForegroundColor Cyan
 
-# Draft
-$ingestForm = @{
-    customer = 'ACME'
-    family = 'Brackets'
-    files = Get-Item $sampleFile
+# Draft (ingest via curl). To avoid quoting issues with spaces in paths, copy to temp.
+$tempSample = Join-Path $env:TEMP 'sbp_test_project_sample.txt'
+Copy-Item -Force $sampleFile $tempSample
+$ingestJson = & curl.exe -s -X POST -F files=@$tempSample -F project_name='ACME_Bracket_Test' -F customer='ACME' -F family='Brackets' "$BaseUrl/ingest"
+if (-not $ingestJson) {
+    throw "Failed to ingest sample file: empty response from server."
 }
-$session = Invoke-RestMethod -Method Post "$BaseUrl/ingest" -Form $ingestForm
+try {
+    $session = $ingestJson | ConvertFrom-Json
+} catch {
+    Write-Host "Raw ingest response:" -ForegroundColor Yellow
+    Write-Host $ingestJson
+    throw "Failed to parse ingest response."
+}
 if (-not $session.session_id) {
     throw "Failed to ingest sample file."
 }
 
 $projectName = 'ACME Bracket Test'
-$draftBody = @{
+${draftBody} = @{
     session_id = $session.session_id
     project_name = $projectName
     customer = 'ACME'
     family = 'Brackets'
 }
-$draftResponse = Invoke-RestMethod -Method Post "$BaseUrl/draft" -ContentType 'application/json' -Body ($draftBody | ConvertTo-Json -Depth 6)
+$draftResponse = Invoke-RestMethod -Method Post "$BaseUrl/draft" -ContentType 'application/json' -Body (${draftBody} | ConvertTo-Json -Depth 6)
 ($draftResponse | ConvertTo-Json -Depth 10) | Out-File (Join-Path $outputsPath '_smoke_draft.json') -Encoding utf8
 
 # Agents run
-$agentBody = @{
+${agentBody} = @{
     session_id = $session.session_id
     vector_store_id = $draftResponse.vector_store_id
     plan_json = $draftResponse.plan_json
     context_pack = $draftResponse.context_pack
 }
-$agentsResponse = Invoke-RestMethod -Method Post "$BaseUrl/agents/run" -ContentType 'application/json' -Body ($agentBody | ConvertTo-Json -Depth 10)
+$agentsResponse = Invoke-RestMethod -Method Post "$BaseUrl/agents/run" -ContentType 'application/json' -Body (${agentBody} | ConvertTo-Json -Depth 10)
 ($agentsResponse | ConvertTo-Json -Depth 12) | Out-File (Join-Path $outputsPath '_smoke_agents.json') -Encoding utf8
 
 $qaScore = if ($agentsResponse.qa) { $agentsResponse.qa.score } else { $null }
@@ -49,20 +56,23 @@ $qaBlocked = if ($agentsResponse.qa) { $agentsResponse.qa.blocked } else { $null
 $suggestedCount = if ($agentsResponse.tasks_suggested) { $agentsResponse.tasks_suggested.Count } else { 0 }
 Write-Host "Agents QA Score=$qaScore Blocked=$qaBlocked SuggestedTasks=$suggestedCount" -ForegroundColor Yellow
 
-# Publish (reads latest .md)
-$latestMarkdown = Get-ChildItem -Path $outputsPath -Filter 'Strategic_Build_Plan__*.md' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-if (-not $latestMarkdown) {
-    throw "No Markdown plan found in outputs/. Run draft first."
+# Publish (optional; skip if not configured)
+try {
+    $latestMarkdown = Get-ChildItem -Path $outputsPath -Filter 'Strategic_Build_Plan__*.md' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($latestMarkdown) {
+        $markdownContent = Get-Content $latestMarkdown.FullName -Raw
+        $publishBody = @{
+            customer = 'ACME'
+            family = 'Brackets'
+            project = $projectName
+            markdown = $markdownContent
+        }
+        Invoke-RestMethod -Method Post "$BaseUrl/publish" -ContentType 'application/json' -Body ($publishBody | ConvertTo-Json -Depth 4) |
+            Out-File (Join-Path $outputsPath '_smoke_publish.json') -Encoding utf8
+    }
+} catch {
+    Write-Host "Publish step skipped or failed (likely not configured)." -ForegroundColor DarkYellow
 }
-$markdownContent = Get-Content $latestMarkdown.FullName -Raw
-$publishBody = @{
-    customer = 'ACME'
-    family = 'Brackets'
-    project = $projectName
-    markdown = $markdownContent
-}
-Invoke-RestMethod -Method Post "$BaseUrl/publish" -ContentType 'application/json' -Body ($publishBody | ConvertTo-Json -Depth 4) |
-    Out-File (Join-Path $outputsPath '_smoke_publish.json') -Encoding utf8
 
 # QA
 $latestJson = Get-ChildItem -Path $outputsPath -Filter 'Strategic_Build_Plan__*.json' | Sort-Object LastWriteTime -Descending | Select-Object -First 1

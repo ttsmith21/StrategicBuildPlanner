@@ -249,7 +249,7 @@ User uploads files
 [/publish] → Confluence page creation (if QA passed)
 ```
 
-### **Optional: Use /draft for Quick Single-Agent Plan**
+### **Optional: Use /draft for Quick Single-Agent Plan (Deprecated)**
 
 If you want a fast "monolithic" draft before specialists refine it:
 
@@ -257,7 +257,7 @@ If you want a fast "monolithic" draft before specialists refine it:
 [/ingest] → [/draft] → [/agents/run]
 ```
 
-But **you don't need /draft anymore** - specialists can build from scratch!
+But **you don't need /draft anymore** — specialists can build from scratch! `/draft` remains for backward-compat only.
 
 ---
 

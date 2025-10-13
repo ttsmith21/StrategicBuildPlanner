@@ -33,7 +33,8 @@ Available endpoints:
   - GET  /health             - Health check
   - GET  /docs               - Interactive API documentation
   - POST /ingest             - Upload files for plan generation
-  - POST /draft              - Generate Strategic Build Plan
+    - POST /draft              - Generate Strategic Build Plan (deprecated; prefer /agents/run)
+    - POST /agents/run         - Run specialist agents (QMA, PMA, SCA, EMA, SBP-QA)
   - POST /agents/run         - Run specialist agents (QMA, PMA, SCA, EMA, SBP-QA)
   - POST /publish            - Publish plan to Confluence
   - POST /meeting/apply      - Apply meeting notes to plan

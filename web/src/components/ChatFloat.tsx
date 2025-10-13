@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChatPanel } from "./ChatPanel";
+import { Toast } from "./ToastContainer";
 import type { AsanaProjectSummary, ChatMessage, SpecialistAgentKey } from "../types";
 
 type AgentStatus = "idle" | "pending" | "ok" | "warn";
@@ -32,6 +33,7 @@ export interface ChatFloatProps {
   disabled?: boolean;
   agentStatuses: Record<SpecialistAgentKey, AgentStatus>;
   agentsRunning: boolean;
+  pushToast: (type: Toast["type"], message: string) => void;
 }
 
 export function ChatFloat(props: ChatFloatProps) {
@@ -174,6 +176,7 @@ export function ChatFloat(props: ChatFloatProps) {
               agentsRunning={false}
               showControls={false}
               hideHeader
+              pushToast={props.pushToast}
             />
           </div>
         </div>

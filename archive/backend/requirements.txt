@@ -1,0 +1,1 @@
+# Archived legacy backend requirements (not used by FastAPI server in server/)

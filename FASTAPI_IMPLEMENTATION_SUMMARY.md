@@ -22,7 +22,7 @@
 server/
 ├── main.py              # FastAPI application (527 lines)
 │   ├── POST /ingest           → File upload + session creation
-│   ├── POST /draft            → Plan generation with OpenAI
+│   ├── POST /draft            → Plan generation (deprecated, use /agents/run)
 │   ├── POST /publish          → Confluence page creation
 │   ├── POST /meeting/apply    → Merge meeting notes
 │   ├── POST /qa/grade         → Quality rubric grading
@@ -70,7 +70,7 @@ server/
 
 ---
 
-### 3. ✅ POST /draft Implementation
+### 3. ✅ POST /draft Implementation (Deprecated)
 
 **Accepts:**
 ```json
@@ -92,19 +92,19 @@ server/
 }
 ```
 
-**Logic Flow:**
+**Logic Flow (legacy single-agent path):**
 1. Retrieves session from store
 2. Creates OpenAI Vector Store with uploaded files
-3. Generates plan using Responses API with structured outputs
+3. Generates plan using a generalist agent
 4. Renders plan to Markdown using Jinja2 template
 5. Returns complete plan JSON + Markdown
 
-**Code Reuse:**
+**Notes:**
 - Uses `create_vector_store()` from `lib/vectorstore.py`
-- Uses `generate_plan()` with APQP_CHECKLIST and PLAN_SCHEMA
+- The old `generate_plan()` helper has been removed; the active flow uses specialist agents via `/agents/run`.
 - Uses `render_plan_md()` from `lib/rendering.py`
 
-**Test Result:** ✅ IMPLEMENTATION VERIFIED
+**Status:** ⚠️ Deprecated — Prefer `/agents/run` to orchestrate specialist agents end-to-end.
 
 ---
 
@@ -252,9 +252,9 @@ server/
 - Extracted `render_plan_md()` (unchanged)
 
 **server/lib/vectorstore.py:**
-- Extracted `create_vector_store()` (refactored from CLI)
-- Extracted `generate_plan()` (refactored from CLI)
-- Added `delete_vector_store()` (new)
+- `create_vector_store()` (refactored from CLI)
+- `delete_vector_store()` (cleanup helper)
+  - Note: `generate_plan()` has been removed. Plan generation is handled by the agent wrapper and specialist agents.
 
 ### Benefits of Code Reuse
 
@@ -358,7 +358,7 @@ Added FastAPI server section with:
 |-------------|--------|----------|
 | POST /ingest accepts files + metadata | ✅ PASSED | Tested with 2 files, returns session_id |
 | POST /draft builds vector store | ✅ VERIFIED | Uses `create_vector_store()` from lib |
-| POST /draft calls CLI logic | ✅ VERIFIED | Uses `generate_plan()` with APQP_CHECKLIST |
+| POST /draft calls legacy logic | ⚠️ DEPRECATED | Use `/agents/run`; `generate_plan()` removed |
 | POST /draft returns plan JSON + MD | ✅ VERIFIED | Pydantic model validates response |
 | POST /publish resolves family page | ✅ VERIFIED | CQL search implemented |
 | POST /publish creates child page | ✅ VERIFIED | v2 API with spaceId |
