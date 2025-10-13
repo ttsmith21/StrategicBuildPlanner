@@ -79,6 +79,7 @@ interface UploadPanelProps {
   onFamilySelected: (page: ConfluencePageSummary | null) => void;
   onFamilyUrlPaste: (url: string) => Promise<void> | void;
   pushToast: (type: Toast["type"], message: string) => void;
+  onGenerateMeetingPrep?: () => void;
 }
 
 export function UploadPanel({
@@ -97,6 +98,7 @@ export function UploadPanel({
   onFamilySelected,
   onFamilyUrlPaste,
   pushToast,
+  onGenerateMeetingPrep,
 }: UploadPanelProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
@@ -527,6 +529,31 @@ export function UploadPanel({
             ))
           )}
         </div>
+
+        {uploadedFiles.length > 0 && sessionId && onGenerateMeetingPrep && (
+          <div style={{ marginTop: "1rem" }}>
+            <button
+              type="button"
+              onClick={onGenerateMeetingPrep}
+              style={{
+                padding: "0.75rem 1.5rem",
+                fontSize: "1rem",
+                fontWeight: "600",
+                backgroundColor: "#2563eb",
+                color: "#fff",
+                border: "none",
+                borderRadius: "4px",
+                cursor: "pointer",
+                width: "100%",
+              }}
+            >
+              📋 Generate Meeting Prep (Brief + Agenda)
+            </button>
+            <div className="small" style={{ marginTop: "0.5rem", textAlign: "center" }}>
+              Prepare materials to present at the start of your APQP meeting
+            </div>
+          </div>
+        )}
       </section>
     </div>
   );
