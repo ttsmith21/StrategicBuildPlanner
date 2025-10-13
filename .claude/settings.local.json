@@ -15,7 +15,9 @@
       "Bash(npm --version)",
       "Bash(npm run dev)",
       "Bash(npx tsc:*)",
-      "Bash(npm install)"
+      "Bash(npm install)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)"
     ],
     "deny": [],
     "ask": []
