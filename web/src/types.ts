@@ -235,11 +235,44 @@ export interface SuggestedTask {
   schedule_impact?: string;
 }
 
+export interface MeetingAgendaTopic {
+  name: string;
+  discussion_prompts: string[];
+  known_facts: string[];
+  open_questions: string[];
+  suggested_duration_minutes: number;
+}
+
+export interface MeetingAgenda {
+  topics: MeetingAgendaTopic[];
+  total_duration_minutes: number;
+}
+
+export interface MeetingPrepResponseData {
+  project_brief_markdown: string;
+  meeting_agenda: MeetingAgenda;
+  lessons_learned_summary?: string | null;
+  critical_questions: string[];
+}
+
+export interface TranscribeResponseData {
+  transcript_text: string;
+  duration_seconds?: number | null;
+}
+
 export interface MeetingApplyResponseData {
   updated_plan_json: PlanJson;
   updated_plan_markdown: string;
   changes_summary: string;
   suggested_tasks: SuggestedTask[];
+  keys_to_project?: string[] | null;
+  coverage_analysis?: Record<string, string> | null;
+  qa?: {
+    score?: number;
+    blocked?: boolean;
+    reasons?: string[];
+    fixes?: string[];
+  } | null;
 }
 
 export interface AsanaTaskSummary {
