@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { QAScoreCard } from "./QAScoreCard";
 import {
   AsanaTaskSummary,
   EngineeringInstructions,
