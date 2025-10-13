@@ -45,10 +45,29 @@ def _get_client() -> OpenAI:
 
 
 def _extract_json(response: Any) -> Dict[str, Any]:
+    """Extract JSON from OpenAI Chat Completion response."""
     if response is None:
         return {}
     if isinstance(response, dict):
         return response
+
+    # Handle Chat Completion response
+    try:
+        if hasattr(response, 'choices') and len(response.choices) > 0:
+            choice = response.choices[0]
+            message = getattr(choice, 'message', None)
+            if message:
+                # Try to get structured output content
+                content = getattr(message, 'content', None)
+                if content:
+                    try:
+                        return json.loads(content)
+                    except json.JSONDecodeError:
+                        LOGGER.debug("SBP-QA content not valid JSON: %s", content)
+    except Exception as e:
+        LOGGER.debug("Error extracting from chat completion: %s", e)
+
+    # Fallback: try legacy output_blocks pattern (for backwards compatibility)
     output_blocks = getattr(response, "output", None)
     if output_blocks:
         for block in output_blocks:
@@ -70,17 +89,7 @@ def _extract_json(response: Any) -> Dict[str, Any]:
                             return json.loads(text_value)
                         except json.JSONDecodeError:
                             LOGGER.debug("SBP-QA text block not JSON: %s", text_value)
-    output_text = getattr(response, "output_text", None)
-    if isinstance(output_text, str):
-        try:
-            return json.loads(output_text)
-        except json.JSONDecodeError:
-            LOGGER.debug("SBP-QA output_text not JSON: %s", output_text)
-    dump_method = getattr(response, "model_dump", None)
-    if callable(dump_method):
-        dumped = dump_method()
-        if isinstance(dumped, dict):
-            return dumped
+
     return {}
 
 
@@ -101,30 +110,27 @@ def run_sbpqa(
         LOGGER.warning("SBP-QA cannot initialize OpenAI client: %s", exc)
         return dict(_DEFAULT_RESULT)
 
-    model = os.getenv("OPENAI_MODEL_SBPQA", os.getenv("OPENAI_MODEL_PLAN", "gpt-4.1-mini"))
+    model = os.getenv("OPENAI_MODEL_SBPQA", os.getenv("OPENAI_MODEL_PLAN", "gpt-5"))
     payload = {
         "plan_snapshot": plan_json,
         "context_pack": context_pack.model_dump(),
         "instructions": "Return the QA verdict JSON only.",
     }
 
-    request_payload: Dict[str, Any] = {
-        "model": model,
-        "temperature": 0.0,
-        "input": [
-            {"role": "system", "content": SBPQA_SYSTEM},
-            {
-                "role": "user",
-                "content": json.dumps(payload, ensure_ascii=False, indent=2),
-            },
-        ],
-        "tools": [{"type": "file_search"}],
-        "tool_resources": {"file_search": {"vector_store_ids": [vector_store_id]}},
-        "response_format": {"type": "json_schema", "json_schema": _QA_SCHEMA},
-    }
-
+    # Use Chat Completions API with structured outputs
     try:
-        response = client.responses.create(**request_payload)
+        response = client.chat.completions.create(
+            model=model,
+            temperature=0.0,
+            messages=[
+                {"role": "system", "content": SBPQA_SYSTEM},
+                {
+                    "role": "user",
+                    "content": json.dumps(payload, ensure_ascii=False, indent=2),
+                },
+            ],
+            response_format={"type": "json_schema", "json_schema": _QA_SCHEMA},
+        )
     except Exception as exc:  # pylint: disable=broad-except
         LOGGER.exception("SBP-QA call failed: %s", exc)
         return dict(_DEFAULT_RESULT)

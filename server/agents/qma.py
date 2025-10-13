@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from ..lib.context_pack import ContextPack
 from ..lib.schema import AgentConflict, AgentPatch, AgentTask, QualityPlan
 from .prompts import QMA_SYSTEM
+from .base_threads import run_json_schema_thread
 
 LOGGER = logging.getLogger(__name__)
 
@@ -123,11 +124,26 @@ class QMAResponse(BaseModel):
     )
 
 
-# Generate JSON Schema from Pydantic model
+# Generate JSON Schema from Pydantic model with strict mode fixes
+def _make_strict_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
+    """Recursively add additionalProperties: false to all objects for OpenAI strict mode"""
+    if isinstance(schema, dict):
+        if schema.get("type") == "object" and "additionalProperties" not in schema:
+            schema["additionalProperties"] = False
+        for key, value in schema.items():
+            if isinstance(value, dict):
+                _make_strict_schema(value)
+            elif isinstance(value, list):
+                for item in value:
+                    if isinstance(item, dict):
+                        _make_strict_schema(item)
+    return schema
+
+_base_schema = QMAResponse.model_json_schema()
 _QUALITY_PATCH_SCHEMA: Dict[str, Any] = {
     "name": "QMAResponse",
     "strict": True,
-    "schema": QMAResponse.model_json_schema()
+    "schema": _make_strict_schema(_base_schema)
 }
 
 
@@ -290,43 +306,27 @@ def run_qma(
         LOGGER.info("run_qma invoked without vector store; returning blank patch.")
         return _blank_patch()
 
-    try:
-        client = _get_client()
-    except RuntimeError as exc:
-        LOGGER.warning("QMA cannot initialize OpenAI client: %s", exc)
-        return _blank_patch()
-
-    model = os.getenv("OPENAI_MODEL_QMA", os.getenv("OPENAI_MODEL_PLAN", "gpt-4o-mini"))
+    model = os.getenv("OPENAI_MODEL_QMA", os.getenv("OPENAI_MODEL_PLAN", "gpt-5"))
     payload = {
         "plan_snapshot": plan_json,
         "context_pack": _summarize_context(plan_json, context_pack),
         "instructions": "Analyze the uploaded documents and extract quality planning requirements. Fill the quality_plan structure with detailed information from the documents. Use citations for traceability.",
     }
 
-    request_payload: Dict[str, Any] = {
-        "model": model,
-        "temperature": 0.1,
-        "input": [
-            {"role": "system", "content": QMA_SYSTEM},
-            {
-                "role": "user",
-                "content": json.dumps(payload, ensure_ascii=False, indent=2),
-            },
-        ],
-        "tools": [{"type": "file_search"}],
-        "tool_resources": {"file_search": {"vector_store_ids": [vector_store_id]}},
-        "response_format": {"type": "json_schema", "json_schema": _QUALITY_PATCH_SCHEMA},
-    }
-
     try:
-        LOGGER.info("QMA: Calling OpenAI Responses API...")
-        response = client.responses.create(**request_payload)
-        LOGGER.info("QMA: Got response from OpenAI")
+        LOGGER.info("QMA: Calling OpenAI Threads API...")
+        data = run_json_schema_thread(
+            model=model,
+            system_prompt=QMA_SYSTEM,
+            user_prompt=payload,
+            json_schema=_QUALITY_PATCH_SCHEMA,
+            vector_store_id=vector_store_id,
+            temperature=0.1,
+        )
+        LOGGER.info("QMA: Got response from OpenAI Threads")
     except Exception as exc:  # pylint: disable=broad-except
-        LOGGER.exception("QMA call failed: %s", exc)
+        LOGGER.exception("QMA threads call failed: %s", exc)
         return _blank_patch()
-
-    data = _extract_json(response)
     LOGGER.info("QMA: Extracted JSON data type=%s", type(data))
     if not isinstance(data, dict):
         LOGGER.warning("QMA returned non-dict payload; defaulting to blank patch.")
