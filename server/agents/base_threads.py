@@ -8,13 +8,32 @@ from __future__ import annotations
 
 import json
 import time
+import logging
 from typing import Any, Dict, Optional
 
 from openai import OpenAI
+from ..lib.retry import create_openai_retry_decorator
+
+LOGGER = logging.getLogger(__name__)
+
+# Create retry decorator for OpenAI calls (3 attempts, 2s initial delay)
+retry_openai = create_openai_retry_decorator(max_attempts=3, initial_delay=2.0)
 
 
 def _get_client() -> OpenAI:
     return OpenAI()
+
+
+@retry_openai
+def _create_assistant_with_retry(client: OpenAI, **kwargs) -> Any:
+    """Create assistant with retry logic"""
+    return client.beta.assistants.create(**kwargs)
+
+
+@retry_openai
+def _create_and_poll_with_retry(client: OpenAI, **kwargs) -> Any:
+    """Create and poll run with retry logic"""
+    return client.beta.threads.runs.create_and_poll(**kwargs)
 
 
 def run_json_schema_thread(
@@ -38,7 +57,9 @@ def run_json_schema_thread(
     tools = [{"type": "file_search"}]
     tool_resources = {"file_search": {"vector_store_ids": [vector_store_id]}} if vector_store_id else None
 
-    assistant = client.beta.assistants.create(
+    LOGGER.info("Creating assistant with retry logic...")
+    assistant = _create_assistant_with_retry(
+        client,
         name="SBP Specialist Runner",
         instructions=system_prompt,
         model=model,
@@ -62,7 +83,9 @@ def run_json_schema_thread(
 
     # Start the run using the assistant, enforce JSON schema
     # Note: tool_resources are inherited from assistant, don't pass again
-    run = client.beta.threads.runs.create_and_poll(
+    LOGGER.info("Starting run with retry logic...")
+    run = _create_and_poll_with_retry(
+        client,
         thread_id=thread.id,
         assistant_id=assistant.id,
         response_format={"type": "json_schema", "json_schema": json_schema},
