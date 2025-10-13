@@ -199,6 +199,34 @@ class AsanaTaskModel(BaseModel):
     fingerprint: Optional[str] = None
 
 
+class MeetingPrepRequest(BaseModel):
+    """Request for meeting prep generation"""
+    session_id: str
+
+
+class MeetingAgendaTopic(BaseModel):
+    """Single APQP topic for meeting agenda"""
+    name: str
+    discussion_prompts: list[str]
+    known_facts: list[str]
+    open_questions: list[str]
+    suggested_duration_minutes: int
+
+
+class MeetingAgenda(BaseModel):
+    """Structured meeting agenda"""
+    topics: list[MeetingAgendaTopic]
+    total_duration_minutes: int
+
+
+class MeetingPrepResponse(BaseModel):
+    """Meeting preparation materials"""
+    project_brief_markdown: str
+    meeting_agenda: MeetingAgenda
+    lessons_learned_summary: Optional[str] = None
+    critical_questions: list[str]
+
+
 class MeetingApplyRequest(BaseModel):
     session_id: Optional[str] = None
     plan_json: dict
@@ -1444,6 +1472,69 @@ async def publish_to_confluence(request: PublishRequest):
         raise HTTPException(status_code=status_code, detail=detail) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Publish failed: {str(e)}") from e
+
+
+@app.post("/meeting/prep", response_model=MeetingPrepResponse)
+async def generate_meeting_prep(request: MeetingPrepRequest):
+    """
+    Generate pre-meeting materials: Project Brief + Meeting Agenda.
+
+    This prepares the team for the APQP meeting by:
+    1. Summarizing uploaded documents and Confluence lessons learned
+    2. Creating structured agenda with discussion prompts per APQP dimension
+    3. Identifying critical questions to address in the meeting
+    """
+    LOGGER.info("=== /meeting/prep called for session %s ===", request.session_id)
+
+    # Get session
+    session = sessions.get(request.session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    try:
+        # Get session data
+        project_name = session.get("project_name", "Unknown Project")
+        customer = session.get("customer", "")
+        family = session.get("family", "")
+        vector_store_id = session.get("vector_store_id")
+
+        if not vector_store_id:
+            raise HTTPException(status_code=400, detail="No files uploaded - run /ingest first")
+
+        # Generate meeting prep materials using agent
+        prep_materials = planner_agent.generate_meeting_prep(
+            vector_store_id=vector_store_id,
+            project_name=project_name,
+            customer=customer,
+            family=family,
+        )
+
+        # Build response model
+        agenda_topics = []
+        for topic in prep_materials.get("agenda_topics", []):
+            agenda_topics.append(MeetingAgendaTopic(
+                name=topic.get("name", ""),
+                discussion_prompts=topic.get("discussion_prompts", []),
+                known_facts=topic.get("known_facts", []),
+                open_questions=topic.get("open_questions", []),
+                suggested_duration_minutes=topic.get("suggested_duration_minutes", 10),
+            ))
+
+        total_duration = sum(t.suggested_duration_minutes for t in agenda_topics)
+
+        return MeetingPrepResponse(
+            project_brief_markdown=prep_materials.get("project_brief", ""),
+            meeting_agenda=MeetingAgenda(
+                topics=agenda_topics,
+                total_duration_minutes=total_duration
+            ),
+            lessons_learned_summary=prep_materials.get("lessons_learned", None),
+            critical_questions=prep_materials.get("critical_questions", []),
+        )
+
+    except Exception as e:
+        LOGGER.error(f"Meeting prep generation failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Meeting prep generation failed: {str(e)}")
 
 
 @app.post("/meeting/apply", response_model=MeetingApplyResponse)

@@ -165,6 +165,111 @@ class StrategicBuildPlannerAgent:
             vector_store_id=vector_store_id,
         )
 
+    def generate_meeting_prep(
+        self,
+        vector_store_id: str,
+        project_name: str,
+        customer: Optional[str] = None,
+        family: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Generate pre-meeting materials: Project Brief + Meeting Agenda.
+
+        Returns dict with:
+        - project_brief: Markdown-formatted brief (2-3 pages)
+        - agenda_topics: List of APQP topics with prompts/facts/questions
+        - lessons_learned: Summary from Confluence pages
+        - critical_questions: Key questions to answer in meeting
+        """
+        prep_schema = {
+            "name": "MeetingPrep",
+            "schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "project_brief": {"type": "string"},
+                    "agenda_topics": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                                "discussion_prompts": {
+                                    "type": "array",
+                                    "items": {"type": "string"}
+                                },
+                                "known_facts": {
+                                    "type": "array",
+                                    "items": {"type": "string"}
+                                },
+                                "open_questions": {
+                                    "type": "array",
+                                    "items": {"type": "string"}
+                                },
+                                "suggested_duration_minutes": {"type": "integer"},
+                            },
+                            "required": ["name", "discussion_prompts", "known_facts", "open_questions", "suggested_duration_minutes"],
+                            "additionalProperties": False,
+                        }
+                    },
+                    "lessons_learned": {"type": "string"},
+                    "critical_questions": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    },
+                },
+                "required": ["project_brief", "agenda_topics", "lessons_learned", "critical_questions"],
+            },
+            "strict": True,
+        }
+
+        user_prompt = dedent(
+            f"""
+            Generate materials to prepare the team for an APQP meeting.
+
+            Project: {project_name}
+            Customer: {customer or 'UNKNOWN'}
+            Family of Parts: {family or 'UNKNOWN'}
+
+            Tasks:
+            1. Read all uploaded documents using file_search
+            2. Generate a Project Brief (2-3 pages, Markdown format) covering:
+               - Project overview (customer, part family, scope)
+               - Key facts from documents (materials, quantities, critical specs)
+               - Relevant lessons learned from Confluence history
+               - Open questions that need discussion
+
+            3. Create a Meeting Agenda with 8 APQP topics:
+               - Keys to the Project (15 min) - What 3-5 things matter most?
+               - Quality Plan (15 min) - CTQs, inspection, hold points
+               - Purchasing Risks (10 min) - Long-leads, vendor requirements
+               - Build Strategy (15 min) - Flow, tooling, fixtures
+               - Schedule (10 min) - Timeline, dependencies
+               - Engineering Routing (10 min) - Process steps overview
+               - Execution Strategy (10 min) - Material handling, staging
+               - Shipping/Packaging (5 min) - Protection, logistics
+
+            For each topic include:
+            - discussion_prompts: Questions to guide discussion (3-5 items)
+            - known_facts: What we already know from documents (2-4 items)
+            - open_questions: What needs to be answered (2-4 items)
+            - suggested_duration_minutes: Time allocation
+
+            4. Summarize lessons_learned from Confluence pages if present
+
+            5. List critical_questions (top 5-10 most important) that MUST be answered in the meeting
+
+            Format: Presentation-ready for projector display at meeting start.
+            """
+        ).strip()
+
+        return self._run_structured_task(
+            instructions=PROMPT_HEADER,
+            prompt=user_prompt,
+            schema=prep_schema,
+            vector_store_id=vector_store_id,
+        )
+
     def apply_meeting_notes(
         self,
         plan_json: Dict[str, Any],
