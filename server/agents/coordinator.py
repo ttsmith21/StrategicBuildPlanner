@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
@@ -115,6 +117,49 @@ def _merge_tasks(existing: List[Dict[str, Any]], new_tasks: List[AgentTask]) -> 
     return merged
 
 
+async def _run_specialists_parallel(
+    plan: Dict[str, Any],
+    context_pack: ContextPack,
+    vector_store_id: Optional[str],
+) -> tuple[List[AgentPatch], List[Dict[str, Any]]]:
+    """Run specialist agents in parallel using ThreadPoolExecutor.
+
+    Returns: (patches, all_conflicts)
+    """
+    LOGGER.info("coordinator: Running specialist agents in parallel...")
+
+    loop = asyncio.get_event_loop()
+
+    # Create tasks for parallel execution
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        qma_future = loop.run_in_executor(executor, run_qma, plan, context_pack, vector_store_id)
+        pma_future = loop.run_in_executor(executor, run_pma, plan, context_pack, vector_store_id)
+        sca_future = loop.run_in_executor(executor, run_sca, plan, context_pack, vector_store_id)
+        ema_future = loop.run_in_executor(executor, run_ema, plan, context_pack, vector_store_id)
+
+        # Wait for all to complete
+        patches = await asyncio.gather(qma_future, pma_future, sca_future, ema_future, return_exceptions=True)
+
+    # Collect results, handling any exceptions
+    successful_patches = []
+    all_conflicts = []
+
+    agent_names = ["QMA", "PMA", "SCA", "EMA"]
+    for i, result in enumerate(patches):
+        if isinstance(result, Exception):
+            LOGGER.error(f"coordinator: {agent_names[i]} failed: {result}")
+            # Create empty patch to continue
+            successful_patches.append(AgentPatch(patch={}, tasks=[], conflicts=[]))
+        elif isinstance(result, AgentPatch):
+            successful_patches.append(result)
+            all_conflicts.extend([conflict.model_dump() for conflict in result.conflicts])
+        else:
+            LOGGER.warning(f"coordinator: {agent_names[i]} returned unexpected type: {type(result)}")
+            successful_patches.append(AgentPatch(patch={}, tasks=[], conflicts=[]))
+
+    return successful_patches, all_conflicts
+
+
 def run_specialists(
     plan_json: Optional[Dict[str, Any]],
     context_pack_payload: Any,
@@ -152,7 +197,7 @@ def run_specialists(
     current_sigs = _sources_signature(context_pack)
     previous_sigs: list[str] = plan.get("source_files_used") or []
     changed_sigs = _detect_changed_sources(previous_sigs, current_sigs)
-
+    
     if changed_sigs:
         LOGGER.info("coordinator: changed/new sources detected: %s", changed_sigs)
     # Attach a lightweight hint into project payload so downstream agents can optionally react
@@ -170,27 +215,42 @@ def run_specialists(
     tasks: List[Dict[str, Any]] = []
     conflicts: List[Dict[str, Any]] = []
 
-    LOGGER.info("coordinator: Running QMA...")
-    qma_patch = run_qma(plan, context_pack, vector_store_id)
+    # Run specialists in parallel for 3x speedup
+    try:
+        patches, all_conflicts = asyncio.run(_run_specialists_parallel(plan, context_pack, vector_store_id))
+        qma_patch, pma_patch, sca_patch, ema_patch = patches
+        conflicts.extend(all_conflicts)
+    except Exception as exc:
+        LOGGER.error(f"coordinator: Parallel execution failed: {exc}. Falling back to sequential.")
+        # Fallback to sequential execution
+        LOGGER.info("coordinator: Running QMA...")
+        qma_patch = run_qma(plan, context_pack, vector_store_id)
+        conflicts.extend([conflict.model_dump() for conflict in qma_patch.conflicts])
+
+        LOGGER.info("coordinator: Running PMA...")
+        pma_patch = run_pma(plan, context_pack, vector_store_id)
+        conflicts.extend([conflict.model_dump() for conflict in pma_patch.conflicts])
+
+        LOGGER.info("coordinator: Running SCA...")
+        sca_patch = run_sca(plan, context_pack, vector_store_id)
+        conflicts.extend([conflict.model_dump() for conflict in sca_patch.conflicts])
+
+        LOGGER.info("coordinator: Running EMA...")
+        ema_patch = run_ema(plan, context_pack, vector_store_id)
+        conflicts.extend([conflict.model_dump() for conflict in ema_patch.conflicts])
+
+    # Apply patches with ownership enforcement
     _apply_patch(plan, qma_patch, _AGENT_OWNERSHIP["qma"])
     tasks = _merge_tasks(tasks, qma_patch.tasks)
-    conflicts.extend([conflict.model_dump() for conflict in qma_patch.conflicts])
 
-    LOGGER.info("coordinator: Running PMA...")
-    pma_patch = run_pma(plan, context_pack, vector_store_id)
     _apply_patch(plan, pma_patch, _AGENT_OWNERSHIP["pma"])
     tasks = _merge_tasks(tasks, pma_patch.tasks)
-    conflicts.extend([conflict.model_dump() for conflict in pma_patch.conflicts])
 
-    sca_patch = run_sca(plan, context_pack, vector_store_id)
     _apply_patch(plan, sca_patch, _AGENT_OWNERSHIP["sca"])
     tasks = _merge_tasks(tasks, sca_patch.tasks)
-    conflicts.extend([conflict.model_dump() for conflict in sca_patch.conflicts])
 
-    ema_patch = run_ema(plan, context_pack, vector_store_id)
     _apply_patch(plan, ema_patch, _AGENT_OWNERSHIP["ema"])
     tasks = _merge_tasks(tasks, ema_patch.tasks)
-    conflicts.extend([conflict.model_dump() for conflict in ema_patch.conflicts])
 
     # Synthesizers: Open Questions (only if empty) then Keys (1–5)
     try:
