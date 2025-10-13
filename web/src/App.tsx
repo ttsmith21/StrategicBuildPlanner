@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { api } from "./api";
+import { api, generateMeetingPrep } from "./api";
 import { UploadPanel } from "./components/UploadPanel";
 import { PlanPreview } from "./components/PlanPreview";
 import { ChatFloat } from "./components/ChatFloat";
@@ -10,6 +10,8 @@ import { SessionBar } from "./components/SessionBar";
 import { SessionHistory } from "./components/SessionHistory";
 import { SessionHistoryCompact } from "./components/SessionHistoryCompact";
 import { Toast, ToastContainer } from "./components/ToastContainer";
+import { MeetingPrepView } from "./components/MeetingPrepView";
+import { MeetingNotesUpload } from "./components/MeetingNotesUpload";
 import {
   AsanaProjectSummary,
   AsanaTaskSummary,
@@ -22,6 +24,7 @@ import {
   ContextPack,
   IngestResponseData,
   MeetingApplyResponseData,
+  MeetingPrepResponseData,
   PlannerMeta,
   PlanConflict,
   PlanJson,
@@ -142,6 +145,9 @@ export default function App() {
   const [projectNameEdited, setProjectNameEdited] = useState<boolean>(false);
   const [agentStatuses, setAgentStatuses] = useState(INITIAL_AGENT_STATUSES);
   const [qaBlocked, setQaBlocked] = useState<boolean>(false);
+  const [meetingPrepData, setMeetingPrepData] = useState<MeetingPrepResponseData | null>(null);
+  const [showMeetingPrep, setShowMeetingPrep] = useState<boolean>(false);
+  const [showMeetingNotes, setShowMeetingNotes] = useState<boolean>(false);
   const defaultProjectName = useMemo(() => {
     const customer = meta.customer || "Customer";
     const family = meta.family || meta.projectName || "Family";
@@ -948,6 +954,46 @@ export default function App() {
     }
   };
 
+  const handleGenerateMeetingPrep = async () => {
+    if (!sessionId) {
+      pushToast("error", "Upload files first to create a session.");
+      return;
+    }
+    setIsBusy(true);
+    try {
+      const data = await generateMeetingPrep(sessionId);
+      setMeetingPrepData(data);
+      setShowMeetingPrep(true);
+      pushToast("success", "Meeting prep materials generated!");
+    } catch (error) {
+      pushToast("error", `Failed to generate meeting prep: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const handleStartMeeting = () => {
+    setShowMeetingPrep(false);
+    setShowMeetingNotes(true);
+  };
+
+  const handleGeneratePlanFromNotes = async (notes: string) => {
+    if (!sessionId) {
+      pushToast("error", "Session not found");
+      return;
+    }
+    setIsBusy(true);
+    try {
+      await meetingApplyMutation.mutateAsync(notes);
+      setShowMeetingNotes(false);
+      pushToast("success", "Strategic Build Plan generated from meeting notes!");
+    } catch (error) {
+      pushToast("error", `Failed to generate plan: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
   const canPublish = Boolean(confluenceParentId.trim());
   const publishDisabled = isBusy || !planJson || !canPublish || qaBlocked;
   const qaSummary =
@@ -1059,10 +1105,29 @@ export default function App() {
           onFamilySelected={handleFamilySelected}
           onFamilyUrlPaste={handleFamilyUrlPaste}
           pushToast={pushToast}
+          onGenerateMeetingPrep={handleGenerateMeetingPrep}
           />
           {sessionId && (
             <div style={{ marginTop: "0.75rem" }}>
               <SessionHistoryCompact messages={sessionDetailQuery.data?.messages || []} />
+            </div>
+          )}
+
+          {showMeetingPrep && meetingPrepData && (
+            <div style={{ marginTop: "0.75rem" }}>
+              <MeetingPrepView
+                prepData={meetingPrepData}
+                onStartMeeting={handleStartMeeting}
+              />
+            </div>
+          )}
+
+          {showMeetingNotes && (
+            <div style={{ marginTop: "0.75rem" }}>
+              <MeetingNotesUpload
+                onGenerate={handleGeneratePlanFromNotes}
+                loading={meetingApplyMutation.isPending}
+              />
             </div>
           )}
         </div>
