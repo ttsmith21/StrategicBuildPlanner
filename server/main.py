@@ -925,7 +925,7 @@ async def list_confluence_customers(q: str = ""):
 
 
 @app.get("/confluence/families", response_model=list[ConfluencePageSummary])
-async def list_confluence_families(q: str = ""):
+async def list_confluence_families(q: str = "", parent_id: Optional[str] = None):
     _require_confluence_config()
     try:
         return search_pages(
@@ -935,7 +935,7 @@ async def list_confluence_families(q: str = ""):
             CONFIG["confluence_space"],
             q,
             label=CONFIG.get("confluence_family_label"),
-            parent_id=CONFIG.get("confluence_family_parent"),
+            parent_id=parent_id or CONFIG.get("confluence_family_parent"),
         )
     except requests.HTTPError as e:
         raise HTTPException(status_code=e.response.status_code if e.response else 500, detail="Confluence search failed") from e
@@ -1532,6 +1532,69 @@ async def grade_plan_quality(request: QAGradeRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"QA grading failed: {str(e)}")
 
+
+
+# ============================================================================
+# Validation Endpoint
+# ============================================================================
+
+class ValidateRequest(BaseModel):
+    """Request for session validation"""
+    session_id: str
+
+
+class ValidateResponse(BaseModel):
+    """Response with validation results"""
+    is_ready: bool
+    completeness_score: int
+    issues: List[Dict[str, Any]]
+    errors: List[Dict[str, Any]]
+    warnings: List[Dict[str, Any]]
+    suggestions: List[Dict[str, Any]]
+    checklist: List[Dict[str, Any]]
+
+
+@app.post("/validate", response_model=ValidateResponse)
+async def validate_session(request: ValidateRequest):
+    """
+    Validate a session for agent execution readiness.
+
+    Returns validation results including:
+    - is_ready: Whether session can run agents
+    - completeness_score: 0-100% data quality score
+    - issues: All validation issues (errors, warnings, suggestions)
+    - checklist: User-friendly checklist for UI
+    """
+    from .lib.validation import validate_session_for_agents, get_validation_checklist
+
+    LOGGER.info("=== /validate called for session %s ===", request.session_id)
+
+    # Get session
+    session = sessions.get(request.session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Run validation
+    result = validate_session_for_agents(session)
+    checklist = get_validation_checklist(session)
+
+    LOGGER.info(
+        "Validation result: ready=%s, score=%d%%, errors=%d, warnings=%d",
+        result.is_ready,
+        result.completeness_score,
+        len(result.to_dict()["errors"]),
+        len(result.to_dict()["warnings"])
+    )
+
+    return ValidateResponse(
+        is_ready=result.is_ready,
+        completeness_score=result.completeness_score,
+        issues=result.to_dict()["issues"],
+        errors=result.to_dict()["errors"],
+        warnings=result.to_dict()["warnings"],
+        suggestions=result.to_dict()["suggestions"],
+        checklist=checklist,
+    )
 
 @app.get("/asana/projects", response_model=list[AsanaProjectSummary])
 async def list_asana_projects(q: str = ""):

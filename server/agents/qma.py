@@ -126,10 +126,30 @@ class QMAResponse(BaseModel):
 
 # Generate JSON Schema from Pydantic model with strict mode fixes
 def _make_strict_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
-    """Recursively add additionalProperties: false to all objects for OpenAI strict mode"""
+    """
+    Recursively fix schema for OpenAI strict mode requirements:
+    1. Add additionalProperties: false to all objects
+    2. Ensure 'required' array includes all properties
+    """
     if isinstance(schema, dict):
-        if schema.get("type") == "object" and "additionalProperties" not in schema:
-            schema["additionalProperties"] = False
+        # Fix object types
+        if schema.get("type") == "object":
+            # Add additionalProperties: false
+            if "additionalProperties" not in schema:
+                schema["additionalProperties"] = False
+
+            # Ensure 'required' array includes all properties
+            if "properties" in schema:
+                all_props = list(schema["properties"].keys())
+                if "required" not in schema:
+                    schema["required"] = all_props
+                else:
+                    # Make sure all properties are in required
+                    for prop in all_props:
+                        if prop not in schema["required"]:
+                            schema["required"].append(prop)
+
+        # Recursively process nested schemas
         for key, value in schema.items():
             if isinstance(value, dict):
                 _make_strict_schema(value)
@@ -137,6 +157,7 @@ def _make_strict_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
                 for item in value:
                     if isinstance(item, dict):
                         _make_strict_schema(item)
+
     return schema
 
 _base_schema = QMAResponse.model_json_schema()
