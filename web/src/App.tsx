@@ -10,7 +10,6 @@ import { SessionBar } from "./components/SessionBar";
 import { SessionHistory } from "./components/SessionHistory";
 import { SessionHistoryCompact } from "./components/SessionHistoryCompact";
 import { Toast, ToastContainer } from "./components/ToastContainer";
-import { MeetingPrepView } from "./components/MeetingPrepView";
 import { MeetingNotesUpload } from "./components/MeetingNotesUpload";
 import {
   AsanaProjectSummary,
@@ -146,7 +145,6 @@ export default function App() {
   const [agentStatuses, setAgentStatuses] = useState(INITIAL_AGENT_STATUSES);
   const [qaBlocked, setQaBlocked] = useState<boolean>(false);
   const [meetingPrepData, setMeetingPrepData] = useState<MeetingPrepResponseData | null>(null);
-  const [showMeetingPrep, setShowMeetingPrep] = useState<boolean>(false);
   const [showMeetingNotes, setShowMeetingNotes] = useState<boolean>(false);
   const defaultProjectName = useMemo(() => {
     const customer = meta.customer || "Customer";
@@ -345,14 +343,15 @@ export default function App() {
       return data;
     },
     onSuccess: (data) => {
-      // Do not blow away context on append; preserve state, only update what changed
-      if (!sessionId) {
+      // Reset plan if appending files to an existing session (plan becomes stale)
+      // OR if creating a new session
+      if (!sessionId || (sessionId && vectorStoreId && planJson)) {
         resetForNewPlan();
       }
       setSessionId(data.session_id);
       setUploadedFiles(data.file_names);
       
-      // New: Store vector_store_id and context_pack from /ingest
+      // Store vector_store_id and context_pack from /ingest
       if (data.vector_store_id) {
         setVectorStoreId(data.vector_store_id);
       }
@@ -963,18 +962,12 @@ export default function App() {
     try {
       const data = await generateMeetingPrep(sessionId);
       setMeetingPrepData(data);
-      setShowMeetingPrep(true);
-      pushToast("success", "Meeting prep materials generated!");
+      pushToast("success", "Meeting prep materials generated! View the 📋 Meeting Prep tab.");
     } catch (error) {
       pushToast("error", `Failed to generate meeting prep: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {
       setIsBusy(false);
     }
-  };
-
-  const handleStartMeeting = () => {
-    setShowMeetingPrep(false);
-    setShowMeetingNotes(true);
   };
 
   const handleGeneratePlanFromNotes = async (notes: string) => {
@@ -1113,15 +1106,6 @@ export default function App() {
             </div>
           )}
 
-          {showMeetingPrep && meetingPrepData && (
-            <div style={{ marginTop: "0.75rem" }}>
-              <MeetingPrepView
-                prepData={meetingPrepData}
-                onStartMeeting={handleStartMeeting}
-              />
-            </div>
-          )}
-
           {showMeetingNotes && (
             <div style={{ marginTop: "0.75rem" }}>
               <MeetingNotesUpload
@@ -1149,6 +1133,7 @@ export default function App() {
             if (md) setPlanMarkdown(md);
             if (cp) setContextPack(cp as any);
           }}
+          meetingPrepData={meetingPrepData}
           creatingTasks={asanaMutation.isPending}
           onCreateTasks={async (tasks) => {
             try {

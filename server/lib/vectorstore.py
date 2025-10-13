@@ -32,15 +32,20 @@ def create_vector_store(client: OpenAI, project_name: str, file_paths: list[str]
     """
     print(f"[OpenAI] Preparing file streams...")
 
-    # Open all files for upload (ensure handles closed after upload)
     file_handles: list[tuple[str, BinaryIO]] = []
     for fpath in file_paths:
         p = Path(fpath)
         try:
             fh = open(p, 'rb')
-            file_handles.append((p.name, fh))
+            # Normalize file extension to lowercase for OpenAI API compatibility
+            name_parts = p.name.rsplit('.', 1)
+            if len(name_parts) == 2:
+                normalized_name = f"{name_parts[0]}.{name_parts[1].lower()}"
+            else:
+                normalized_name = p.name
+            file_handles.append((normalized_name, fh))
             size_kb = max(p.stat().st_size // 1024, 1)
-            print(f"  ✓ Ready: {p.name} (~{size_kb} KB)")
+            print(f"  ✓ Ready: {normalized_name} (~{size_kb} KB)")
         except Exception as e:
             print(f"  ⚠ Error opening {p.name}: {e}")
 
@@ -112,7 +117,13 @@ def append_files_to_vector_store(client: OpenAI, vector_store_id: str, file_path
         p = Path(fpath)
         try:
             fh = open(p, 'rb')
-            file_handles.append((p.name, fh))
+            # Normalize file extension to lowercase for OpenAI API compatibility
+            name_parts = p.name.rsplit('.', 1)
+            if len(name_parts) == 2:
+                normalized_name = f"{name_parts[0]}.{name_parts[1].lower()}"
+            else:
+                normalized_name = p.name
+            file_handles.append((normalized_name, fh))
         except Exception as e:
             print(f"  ⚠ Error opening {p.name}: {e}")
     if not file_handles:
