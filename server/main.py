@@ -249,6 +249,9 @@ class MeetingApplyResponse(BaseModel):
     updated_plan_markdown: str
     changes_summary: str
     suggested_tasks: list[AsanaTaskModel]
+    keys_to_project: Optional[list[str]] = None
+    coverage_analysis: Optional[dict[str, str]] = None
+    qa: Optional[dict] = None
 
 
 class QAGradeRequest(BaseModel):

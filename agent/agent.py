@@ -277,15 +277,51 @@ class StrategicBuildPlannerAgent:
     ) -> Dict[str, Any]:
         meeting_prompt = dedent(
             f"""
-            Update the following Strategic Build Plan with new meeting notes.
-            Preserve all existing content unless the meeting explicitly changes it.
-            Mark updated confidence at 0.95 when the meeting confirms details.
+            Generate a Strategic Build Plan from the APQP meeting notes.
 
-            Current plan JSON:
-            {json.dumps(plan_json, indent=2)}
+            CRITICAL REQUIREMENTS:
+
+            1. EXTRACT "KEYS TO THE PROJECT" (1-5 bullets):
+               - Must identify the 3-5 most critical success factors
+               - These are STRATEGIC INSIGHTS, not obvious facts
+               - Focus on what makes/loses money, critical dependencies, risks
+               - Examples of GOOD keys:
+                 ✓ "Passivation cert required before shipment - blocks order if missed"
+                 ✓ "Fixture cost ($12k) needs 250pc order to hit margin target"
+                 ✓ "Customer 2-week lead but material is 8 weeks - need buffer stock"
+               - Examples of BAD keys (too obvious/vague):
+                 ✗ "Part is made of stainless steel"
+                 ✗ "Quality is important"
+                 ✗ "We need to weld it"
+
+            2. FILTER DETAIL LEVELS:
+               - STRATEGIC → Include in plan (decisions, risks, mitigations, cost levers)
+               - REFERENCE → Cite document, don't copy (dimension callouts, material specs)
+               - EXCLUDE → Don't include (meeting logistics, obvious facts)
+
+            3. ENSURE ALL 8 APQP DIMENSIONS ARE COVERED:
+               - Keys to the Project (1-5 bullets) ← MOST IMPORTANT
+               - Quality Plan (CTQs, inspection, hold points)
+               - Purchasing Risks (long-leads, mitigations)
+               - Build Strategy (flow, tooling, fixtures)
+               - Schedule (timeline, dependencies)
+               - Engineering Routing (process steps)
+               - Execution Strategy (material handling)
+               - Shipping/Packaging (protection, logistics)
+
+            4. MARK CONFIDENCE:
+               - Meeting discussion → confidence: 0.95
+               - From documents → confidence: 0.90
+               - Inferred/assumed → confidence: 0.50
+               - Unknown → "UNKNOWN" with confidence: 0.0
+
+            Current plan (if exists):
+            {json.dumps(plan_json, indent=2) if plan_json else "{}"}
 
             Meeting notes:
             {'\n\n'.join(transcript_texts)}
+
+            Generate complete Strategic Build Plan focusing on STRATEGIC INSIGHTS.
             """
         ).strip()
 
