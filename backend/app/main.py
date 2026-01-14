@@ -20,8 +20,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Import routers
-from app.routers import ingest
-# from app.routers import draft, publish, meeting, qa
+from app.routers import ingest, draft, publish, meeting, qa
 
 app = FastAPI(
     title="Strategic Build Planner API",
@@ -68,10 +67,10 @@ async def root():
 
 # Include routers
 app.include_router(ingest.router, prefix="/api", tags=["ingest"])
-# app.include_router(draft.router, prefix="/api", tags=["draft"])
-# app.include_router(publish.router, prefix="/api", tags=["publish"])
-# app.include_router(meeting.router, prefix="/api/meeting", tags=["meeting"])
-# app.include_router(qa.router, prefix="/api/qa", tags=["qa"])
+app.include_router(draft.router, prefix="/api", tags=["draft"])
+app.include_router(publish.router, prefix="/api", tags=["publish"])
+app.include_router(meeting.router, prefix="/api/meeting", tags=["meeting"])
+app.include_router(qa.router, prefix="/api/qa", tags=["qa"])
 
 if __name__ == "__main__":
     import uvicorn
