@@ -1,5 +1,9 @@
 """
 Checklist Router - Pre-Meeting Checklist Generation API
+
+Supports two implementations:
+- Original: Individual prompts via Assistants API (slower, more accurate for edge cases)
+- Optimized: Category-batched via Chat Completions (faster, recommended)
 """
 
 from typing import List, Optional
@@ -8,24 +12,29 @@ from pydantic import BaseModel
 
 from datetime import datetime
 from app.services.checklist_service import ChecklistService
+from app.services.checklist_service_optimized import OptimizedChecklistService
 from app.services.confluence import ConfluenceService
 
 router = APIRouter(prefix="/api/checklist", tags=["checklist"])
 
-# Initialize service
+# Initialize both services
 checklist_service = ChecklistService()
+optimized_checklist_service = OptimizedChecklistService()
 
 
 class ChecklistRequest(BaseModel):
     """Request model for checklist generation"""
+
     vector_store_id: str
     project_name: str
     customer: Optional[str] = None
     category_ids: Optional[List[str]] = None
+    optimized: bool = True  # Use optimized batched processing by default
 
 
 class ChecklistItem(BaseModel):
     """Individual checklist item"""
+
     prompt_id: str
     question: str
     prompt: str
@@ -37,6 +46,7 @@ class ChecklistItem(BaseModel):
 
 class ChecklistCategory(BaseModel):
     """Category with items"""
+
     id: str
     name: str
     order: int
@@ -45,6 +55,7 @@ class ChecklistCategory(BaseModel):
 
 class ChecklistStats(BaseModel):
     """Checklist statistics"""
+
     total_prompts: int
     requirements_found: int
     no_requirements: int
@@ -54,6 +65,7 @@ class ChecklistStats(BaseModel):
 
 class ChecklistResponse(BaseModel):
     """Complete checklist response"""
+
     project_name: str
     customer: Optional[str]
     vector_store_id: str
@@ -65,6 +77,7 @@ class ChecklistResponse(BaseModel):
 
 class PromptCategory(BaseModel):
     """Category of prompts"""
+
     id: str
     name: str
     order: int
@@ -73,33 +86,47 @@ class PromptCategory(BaseModel):
 
 class PromptsResponse(BaseModel):
     """Response with all prompts"""
+
     version: str
     description: str
     categories: List[PromptCategory]
     metadata: dict
 
 
-@router.post("", response_model=ChecklistResponse)
+@router.post("")
 async def generate_checklist(request: ChecklistRequest):
     """
     Generate a pre-meeting checklist by running all prompts against uploaded documents
 
-    This endpoint runs all active prompts (or filtered by category) in parallel
-    against the specified vector store. Each prompt queries the documents and
-    extracts relevant requirements.
+    **Two modes available:**
+    - `optimized=true` (default): Category-batched processing via Chat Completions API
+      - ~10 API calls instead of 37
+      - Typical duration: 10-20 seconds
+    - `optimized=false`: Individual prompts via Assistants API
+      - 37 separate API calls
+      - Typical duration: 60-90 seconds
+      - May be more accurate for complex edge cases
 
     **Rate limiting**: Prompts run with controlled concurrency (default 10)
     to avoid hitting OpenAI rate limits.
-
-    **Typical duration**: 30-60 seconds for ~40 prompts with 10 concurrent.
     """
     try:
-        result = await checklist_service.generate_checklist(
-            vector_store_id=request.vector_store_id,
-            project_name=request.project_name,
-            customer=request.customer,
-            category_ids=request.category_ids
-        )
+        if request.optimized:
+            # Use optimized category-batched processing
+            result = await optimized_checklist_service.generate_checklist(
+                vector_store_id=request.vector_store_id,
+                project_name=request.project_name,
+                customer=request.customer,
+                category_ids=request.category_ids,
+            )
+        else:
+            # Use original individual prompt processing
+            result = await checklist_service.generate_checklist(
+                vector_store_id=request.vector_store_id,
+                project_name=request.project_name,
+                customer=request.customer,
+                category_ids=request.category_ids,
+            )
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -150,12 +177,14 @@ async def update_prompts(prompts_data: dict):
 
 class PublishChecklistRequest(BaseModel):
     """Request to publish checklist to Confluence"""
+
     checklist: dict
     parent_page_id: Optional[str] = None
 
 
 class PublishResponse(BaseModel):
     """Response after publishing"""
+
     page_id: str
     page_url: str
     page_title: str
@@ -176,6 +205,7 @@ async def publish_checklist_to_confluence(request: PublishChecklistRequest):
     - Confluence credentials configured in .env
     """
     import logging
+
     logger = logging.getLogger(__name__)
 
     try:
@@ -199,7 +229,7 @@ async def publish_checklist_to_confluence(request: PublishChecklistRequest):
         result = await confluence.create_page(
             title=page_title,
             content=checklist_content,
-            parent_id=request.parent_page_id
+            parent_id=request.parent_page_id,
         )
 
         logger.info(
@@ -211,21 +241,20 @@ async def publish_checklist_to_confluence(request: PublishChecklistRequest):
             page_id=result["id"],
             page_url=result["url"],
             page_title=result["title"],
-            published_at=datetime.utcnow()
+            published_at=datetime.utcnow(),
         )
 
     except ValueError as e:
         logger.error(f"Confluence configuration error: {str(e)}")
-        raise HTTPException(
-            status_code=503,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=503, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Confluence checklist publish failed: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to publish checklist to Confluence: {str(e)}"
+            detail=f"Failed to publish checklist to Confluence: {str(e)}",
         )
+
+
 # Force reload
