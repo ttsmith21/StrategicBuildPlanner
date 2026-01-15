@@ -15,21 +15,22 @@ load_dotenv()
 # Configure logging
 logging.basicConfig(
     level=getattr(logging, os.getenv("LOG_LEVEL", "INFO")),
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
 # Import routers
-from app.routers import ingest, draft, publish, meeting, qa, checklist
+from app.routers import ingest, draft, publish, meeting, qa, checklist, confluence, quote
 
 app = FastAPI(
     title="Strategic Build Planner API",
     description="AI-powered APQP Strategic Build Plan generator for Northern Manufacturing",
-    version="0.1.0"
+    version="0.1.0",
 )
 
-# Configure CORS
-origins = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
+# Configure CORS - allow common dev ports
+default_origins = "http://localhost:5173,http://localhost:5174,http://localhost:3000"
+origins = os.getenv("CORS_ORIGINS", default_origins).split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -38,6 +39,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # Health check endpoint
 @app.get("/health")
 async def health_check():
@@ -45,8 +47,9 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "Strategic Build Planner API",
-        "version": "0.1.0"
+        "version": "0.1.0",
     }
+
 
 # Root endpoint
 @app.get("/")
@@ -59,12 +62,15 @@ async def root():
         "endpoints": {
             "ingest": "/api/ingest",
             "checklist": "/api/checklist",
+            "confluence": "/api/confluence",
+            "quote": "/api/quote",
             "draft": "/api/draft",
             "publish": "/api/publish",
             "meeting": "/api/meeting/apply",
-            "qa": "/api/qa/grade"
-        }
+            "qa": "/api/qa/grade",
+        },
     }
+
 
 # Include routers
 app.include_router(ingest.router, prefix="/api", tags=["ingest"])
@@ -73,12 +79,10 @@ app.include_router(publish.router, prefix="/api", tags=["publish"])
 app.include_router(meeting.router, prefix="/api/meeting", tags=["meeting"])
 app.include_router(qa.router, prefix="/api/qa", tags=["qa"])
 app.include_router(checklist.router, tags=["checklist"])
+app.include_router(confluence.router, tags=["confluence"])
+app.include_router(quote.router, tags=["quote"])
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True
-    )
+
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
