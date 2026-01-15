@@ -139,76 +139,58 @@ class OpenAIService:
         max_tokens: int = 16000
     ) -> dict:
         """
-        Generate a Strategic Build Plan using Responses API
-        
+        Generate a Strategic Build Plan using Chat Completions with file_search
+
         Args:
             vector_store_id: Vector Store ID containing project documents
             system_prompt: System instructions for the model
             user_prompt: User query (e.g., project details)
             response_format: Optional JSON schema for structured output
             max_tokens: Maximum tokens in response
-            
+
         Returns:
             Generated plan as dictionary (parsed JSON)
         """
+        import json
+
         try:
-            # Create a thread
-            thread = self.client.beta.threads.create(
-                tool_resources={
-                    "file_search": {
-                        "vector_store_ids": [vector_store_id]
+            # Use Chat Completions API with file_search tool
+            logger.info(f"Generating plan with model: {self.model}")
+
+            # Build the request
+            request_params = {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "tools": [
+                    {
+                        "type": "file_search",
+                        "file_search": {
+                            "vector_store_ids": [vector_store_id]
+                        }
                     }
-                }
-            )
-            
-            # Add user message
-            self.client.beta.threads.messages.create(
-                thread_id=thread.id,
-                role="user",
-                content=user_prompt
-            )
-            
-            # Run with assistant capabilities
-            run = self.client.beta.threads.runs.create(
-                thread_id=thread.id,
-                assistant_id=None,  # We'll use inline assistant config
-                model=self.model,
-                instructions=system_prompt,
-                tools=[{"type": "file_search"}],
-                response_format=response_format or {"type": "text"},
-                max_prompt_tokens=max_tokens,
-                max_completion_tokens=max_tokens
-            )
-            
-            # Wait for completion
-            while run.status in ["queued", "in_progress"]:
-                run = self.client.beta.threads.runs.retrieve(
-                    thread_id=thread.id,
-                    run_id=run.id
-                )
-            
-            if run.status != "completed":
-                logger.error(f"Run failed with status: {run.status}")
-                raise Exception(f"Run failed: {run.status}")
-            
-            # Get the response
-            messages = self.client.beta.threads.messages.list(
-                thread_id=thread.id,
-                order="desc",
-                limit=1
-            )
-            
-            response_content = messages.data[0].content[0].text.value
-            
-            logger.info(f"Generated plan (thread: {thread.id})")
-            
+                ],
+                "max_tokens": max_tokens
+            }
+
+            # Add response format if specified
+            if response_format:
+                request_params["response_format"] = response_format
+
+            response = self.client.chat.completions.create(**request_params)
+
+            response_content = response.choices[0].message.content
+
+            logger.info(f"Generated plan successfully (model: {self.model})")
+
             # Parse JSON if structured output was requested
             if response_format and response_format.get("type") == "json_object":
-                import json
                 return json.loads(response_content)
-            
+
             return {"content": response_content}
-            
+
         except Exception as e:
             logger.error(f"Failed to generate plan: {str(e)}")
             raise
