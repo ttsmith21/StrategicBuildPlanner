@@ -19,7 +19,6 @@ router = APIRouter(prefix="/api/quote", tags=["quote"])
 
 # Initialize services
 quote_service = QuoteComparisonService()
-doc_processor = DocumentProcessor()
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +105,9 @@ async def extract_quote_assumptions(
     - Packaging & Shipping
     - Documentation
     """
+    import io
+    from pathlib import Path
+
     try:
         # Read uploaded file
         content = await file.read()
@@ -113,11 +115,25 @@ async def extract_quote_assumptions(
 
         logger.info(f"Processing quote file: {filename} ({len(content)} bytes)")
 
-        # Extract text from PDF
-        text = doc_processor.extract_text(content, filename)
+        # Extract text based on file extension
+        ext = Path(filename).suffix.lower()
+        file_obj = io.BytesIO(content)
+
+        if ext == ".pdf":
+            text = await DocumentProcessor.extract_text_from_pdf(file_obj, filename)
+        elif ext == ".docx":
+            text = await DocumentProcessor.extract_text_from_docx(file_obj, filename)
+        elif ext == ".txt":
+            text = await DocumentProcessor.extract_text_from_txt(file_obj, filename)
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type: {ext}. Use PDF, DOCX, or TXT.",
+            )
+
         if not text:
             raise HTTPException(
-                status_code=400, detail="Could not extract text from PDF"
+                status_code=400, detail="Could not extract text from file"
             )
 
         logger.info(f"Extracted {len(text)} characters from quote")
@@ -233,9 +249,26 @@ async def full_quote_comparison_workflow(
             raise HTTPException(status_code=400, detail="Invalid checklist JSON")
 
         # Step 1: Extract quote
+        import io
+        from pathlib import Path
+
         content = await quote_file.read()
         filename = quote_file.filename or "quote.pdf"
-        text = doc_processor.extract_text(content, filename)
+
+        ext = Path(filename).suffix.lower()
+        file_obj = io.BytesIO(content)
+
+        if ext == ".pdf":
+            text = await DocumentProcessor.extract_text_from_pdf(file_obj, filename)
+        elif ext == ".docx":
+            text = await DocumentProcessor.extract_text_from_docx(file_obj, filename)
+        elif ext == ".txt":
+            text = await DocumentProcessor.extract_text_from_txt(file_obj, filename)
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type: {ext}. Use PDF, DOCX, or TXT.",
+            )
 
         if not text:
             raise HTTPException(
