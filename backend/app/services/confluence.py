@@ -15,23 +15,21 @@ class ConfluenceService:
     """Service for interacting with Confluence Cloud API"""
 
     def __init__(self):
-        self.url = os.getenv("CONFLUENCE_URL")
+        # Support both CONFLUENCE_URL and CONFLUENCE_BASE_URL for compatibility
+        self.url = os.getenv("CONFLUENCE_URL") or os.getenv("CONFLUENCE_BASE_URL")
         self.email = os.getenv("CONFLUENCE_EMAIL")
         self.token = os.getenv("CONFLUENCE_API_TOKEN")
-        self.space_key = os.getenv("CONFLUENCE_SPACE_KEY", "OPS")
+        self.space_key = os.getenv("CONFLUENCE_SPACE_KEY", "KB")
 
         if not all([self.url, self.email, self.token]):
             logger.warning(
                 "Confluence credentials not fully configured. "
-                "Set CONFLUENCE_URL, CONFLUENCE_EMAIL, and CONFLUENCE_API_TOKEN."
+                "Set CONFLUENCE_URL (or CONFLUENCE_BASE_URL), CONFLUENCE_EMAIL, and CONFLUENCE_API_TOKEN."
             )
             self.client = None
         else:
             self.client = Confluence(
-                url=self.url,
-                username=self.email,
-                password=self.token,
-                cloud=True
+                url=self.url, username=self.email, password=self.token, cloud=True
             )
             logger.info(f"Confluence client initialized for {self.url}")
 
@@ -44,9 +42,7 @@ class ConfluenceService:
             )
 
     async def search_pages(
-        self,
-        cql_query: str,
-        limit: int = 25
+        self, cql_query: str, limit: int = 25
     ) -> List[Dict[str, Any]]:
         """
         Search for Confluence pages using CQL
@@ -72,12 +68,16 @@ class ConfluenceService:
                 # Build page URL
                 page_url = f"{self.url}/wiki/spaces/{self.space_key}/pages/{page_id}"
 
-                pages.append({
-                    "id": page_id,
-                    "title": title,
-                    "url": page_url,
-                    "space_key": content.get("space", {}).get("key", self.space_key)
-                })
+                pages.append(
+                    {
+                        "id": page_id,
+                        "title": title,
+                        "url": page_url,
+                        "space_key": content.get("space", {}).get(
+                            "key", self.space_key
+                        ),
+                    }
+                )
 
             logger.info(f"CQL search found {len(pages)} pages: {cql_query}")
             return pages
@@ -87,8 +87,7 @@ class ConfluenceService:
             raise
 
     async def find_family_of_parts_page(
-        self,
-        family_of_parts: str
+        self, family_of_parts: str
     ) -> Optional[Dict[str, Any]]:
         """
         Find the Family of Parts parent page by label
@@ -109,7 +108,9 @@ class ConfluenceService:
         pages = await self.search_pages(cql, limit=1)
 
         if pages:
-            logger.info(f"Found Family of Parts page: {pages[0]['title']} ({pages[0]['id']})")
+            logger.info(
+                f"Found Family of Parts page: {pages[0]['title']} ({pages[0]['id']})"
+            )
             return pages[0]
 
         logger.warning(f"No Family of Parts page found with label: {label}")
@@ -120,7 +121,7 @@ class ConfluenceService:
         title: str,
         content: str,
         parent_id: Optional[str] = None,
-        space_key: Optional[str] = None
+        space_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Create a new Confluence page
@@ -144,7 +145,7 @@ class ConfluenceService:
                 body=content,
                 parent_id=parent_id,
                 type="page",
-                representation="storage"
+                representation="storage",
             )
 
             page_id = result.get("id")
@@ -156,7 +157,7 @@ class ConfluenceService:
                 "id": page_id,
                 "title": result.get("title"),
                 "url": page_url,
-                "version": result.get("version", {}).get("number", 1)
+                "version": result.get("version", {}).get("number", 1),
             }
 
         except Exception as e:
@@ -164,10 +165,7 @@ class ConfluenceService:
             raise
 
     async def update_page(
-        self,
-        page_id: str,
-        title: str,
-        content: str
+        self, page_id: str, title: str, content: str
     ) -> Dict[str, Any]:
         """
         Update an existing Confluence page
@@ -184,10 +182,7 @@ class ConfluenceService:
 
         try:
             result = self.client.update_page(
-                page_id=page_id,
-                title=title,
-                body=content,
-                representation="storage"
+                page_id=page_id, title=title, body=content, representation="storage"
             )
 
             page_url = f"{self.url}/wiki/spaces/{self.space_key}/pages/{page_id}"
@@ -198,7 +193,7 @@ class ConfluenceService:
                 "id": page_id,
                 "title": result.get("title"),
                 "url": page_url,
-                "version": result.get("version", {}).get("number")
+                "version": result.get("version", {}).get("number"),
             }
 
         except Exception as e:
@@ -219,16 +214,17 @@ class ConfluenceService:
 
         try:
             result = self.client.get_page_by_id(
-                page_id=page_id,
-                expand="body.storage,version"
+                page_id=page_id, expand="body.storage,version"
             )
 
             if result:
                 return {
                     "id": result.get("id"),
                     "title": result.get("title"),
-                    "content": result.get("body", {}).get("storage", {}).get("value", ""),
-                    "version": result.get("version", {}).get("number", 1)
+                    "content": result.get("body", {})
+                    .get("storage", {})
+                    .get("value", ""),
+                    "version": result.get("version", {}).get("number", 1),
                 }
             return None
 
@@ -249,7 +245,8 @@ class ConfluenceService:
         html_parts = []
 
         # Header with metadata
-        html_parts.append(f"""
+        html_parts.append(
+            f"""
 <ac:structured-macro ac:name="info">
   <ac:rich-text-body>
     <p><strong>Customer:</strong> {self._escape_html(plan.get('customer', 'Unknown'))}</p>
@@ -257,91 +254,163 @@ class ConfluenceService:
     <p><strong>Generated:</strong> {plan.get('generated_at', 'Unknown')}</p>
   </ac:rich-text-body>
 </ac:structured-macro>
-""")
+"""
+        )
 
         # Keys to Project
-        html_parts.append(self._render_section(
-            "Keys to Project",
-            plan.get("keys_to_project", [])
-        ))
+        html_parts.append(
+            self._render_section("Keys to Project", plan.get("keys_to_project", []))
+        )
 
         # Quality Plan
         quality = plan.get("quality_plan", {})
         html_parts.append("<h2>Quality Plan</h2>")
         if quality.get("control_plan_items"):
-            html_parts.append(self._render_subsection("Control Plan Items", quality["control_plan_items"]))
+            html_parts.append(
+                self._render_subsection(
+                    "Control Plan Items", quality["control_plan_items"]
+                )
+            )
         if quality.get("inspection_strategy"):
-            html_parts.append(self._render_subsection("Inspection Strategy", quality["inspection_strategy"]))
+            html_parts.append(
+                self._render_subsection(
+                    "Inspection Strategy", quality["inspection_strategy"]
+                )
+            )
         if quality.get("quality_metrics"):
-            html_parts.append(self._render_subsection("Quality Metrics", quality["quality_metrics"]))
+            html_parts.append(
+                self._render_subsection("Quality Metrics", quality["quality_metrics"])
+            )
         if quality.get("ppap_requirements"):
-            html_parts.append(self._render_subsection("PPAP Requirements", quality["ppap_requirements"]))
+            html_parts.append(
+                self._render_subsection(
+                    "PPAP Requirements", quality["ppap_requirements"]
+                )
+            )
 
         # Purchasing
         purchasing = plan.get("purchasing", {})
         html_parts.append("<h2>Purchasing</h2>")
         if purchasing.get("raw_materials"):
-            html_parts.append(self._render_subsection("Raw Materials", purchasing["raw_materials"]))
+            html_parts.append(
+                self._render_subsection("Raw Materials", purchasing["raw_materials"])
+            )
         if purchasing.get("suppliers"):
-            html_parts.append(self._render_subsection("Suppliers", purchasing["suppliers"]))
+            html_parts.append(
+                self._render_subsection("Suppliers", purchasing["suppliers"])
+            )
         if purchasing.get("lead_times"):
-            html_parts.append(self._render_subsection("Lead Times", purchasing["lead_times"]))
+            html_parts.append(
+                self._render_subsection("Lead Times", purchasing["lead_times"])
+            )
         if purchasing.get("cost_estimates"):
-            html_parts.append(self._render_subsection("Cost Estimates", purchasing["cost_estimates"]))
+            html_parts.append(
+                self._render_subsection("Cost Estimates", purchasing["cost_estimates"])
+            )
 
         # History Review
         history = plan.get("history_review", {})
         html_parts.append("<h2>History Review</h2>")
         if history.get("previous_projects"):
-            html_parts.append(self._render_subsection("Previous Projects", history["previous_projects"]))
+            html_parts.append(
+                self._render_subsection(
+                    "Previous Projects", history["previous_projects"]
+                )
+            )
         if history.get("lessons_learned"):
-            html_parts.append(self._render_subsection("Lessons Learned", history["lessons_learned"]))
+            html_parts.append(
+                self._render_subsection("Lessons Learned", history["lessons_learned"])
+            )
         if history.get("recurring_issues"):
-            html_parts.append(self._render_subsection("Recurring Issues", history["recurring_issues"]))
+            html_parts.append(
+                self._render_subsection("Recurring Issues", history["recurring_issues"])
+            )
 
         # Build Strategy
         build = plan.get("build_strategy", {})
         html_parts.append("<h2>Build Strategy</h2>")
         if build.get("manufacturing_process"):
-            html_parts.append(self._render_subsection("Manufacturing Process", build["manufacturing_process"]))
+            html_parts.append(
+                self._render_subsection(
+                    "Manufacturing Process", build["manufacturing_process"]
+                )
+            )
         if build.get("tooling_requirements"):
-            html_parts.append(self._render_subsection("Tooling Requirements", build["tooling_requirements"]))
+            html_parts.append(
+                self._render_subsection(
+                    "Tooling Requirements", build["tooling_requirements"]
+                )
+            )
         if build.get("capacity_planning"):
-            html_parts.append(self._render_subsection("Capacity Planning", build["capacity_planning"]))
+            html_parts.append(
+                self._render_subsection("Capacity Planning", build["capacity_planning"])
+            )
         if build.get("make_vs_buy_decisions"):
-            html_parts.append(self._render_subsection("Make vs. Buy Decisions", build["make_vs_buy_decisions"]))
+            html_parts.append(
+                self._render_subsection(
+                    "Make vs. Buy Decisions", build["make_vs_buy_decisions"]
+                )
+            )
 
         # Execution Strategy
         execution = plan.get("execution_strategy", {})
         html_parts.append("<h2>Execution Strategy</h2>")
         if execution.get("timeline"):
-            html_parts.append(self._render_subsection("Timeline", execution["timeline"]))
+            html_parts.append(
+                self._render_subsection("Timeline", execution["timeline"])
+            )
         if execution.get("milestones"):
-            html_parts.append(self._render_subsection("Milestones", execution["milestones"]))
+            html_parts.append(
+                self._render_subsection("Milestones", execution["milestones"])
+            )
         if execution.get("resource_allocation"):
-            html_parts.append(self._render_subsection("Resource Allocation", execution["resource_allocation"]))
+            html_parts.append(
+                self._render_subsection(
+                    "Resource Allocation", execution["resource_allocation"]
+                )
+            )
         if execution.get("risk_mitigation"):
-            html_parts.append(self._render_subsection("Risk Mitigation", execution["risk_mitigation"]))
+            html_parts.append(
+                self._render_subsection("Risk Mitigation", execution["risk_mitigation"])
+            )
 
         # Release Plan
         release = plan.get("release_plan", {})
         html_parts.append("<h2>Release Plan</h2>")
         if release.get("release_criteria"):
-            html_parts.append(self._render_subsection("Release Criteria", release["release_criteria"]))
+            html_parts.append(
+                self._render_subsection("Release Criteria", release["release_criteria"])
+            )
         if release.get("validation_steps"):
-            html_parts.append(self._render_subsection("Validation Steps", release["validation_steps"]))
+            html_parts.append(
+                self._render_subsection("Validation Steps", release["validation_steps"])
+            )
         if release.get("production_ramp"):
-            html_parts.append(self._render_subsection("Production Ramp", release["production_ramp"]))
+            html_parts.append(
+                self._render_subsection("Production Ramp", release["production_ramp"])
+            )
 
         # Shipping
         shipping = plan.get("shipping", {})
         html_parts.append("<h2>Shipping</h2>")
         if shipping.get("packaging_requirements"):
-            html_parts.append(self._render_subsection("Packaging Requirements", shipping["packaging_requirements"]))
+            html_parts.append(
+                self._render_subsection(
+                    "Packaging Requirements", shipping["packaging_requirements"]
+                )
+            )
         if shipping.get("shipping_methods"):
-            html_parts.append(self._render_subsection("Shipping Methods", shipping["shipping_methods"]))
+            html_parts.append(
+                self._render_subsection(
+                    "Shipping Methods", shipping["shipping_methods"]
+                )
+            )
         if shipping.get("delivery_schedule"):
-            html_parts.append(self._render_subsection("Delivery Schedule", shipping["delivery_schedule"]))
+            html_parts.append(
+                self._render_subsection(
+                    "Delivery Schedule", shipping["delivery_schedule"]
+                )
+            )
 
         # Action Items
         asana_todos = plan.get("asana_todos", [])
@@ -361,10 +430,12 @@ class ConfluenceService:
             html_parts.append(self._render_notes(meeting_notes))
 
         # Footer
-        html_parts.append("""
+        html_parts.append(
+            """
 <hr/>
 <p><em>Generated by Strategic Build Planner - Northern Manufacturing Co., Inc.</em></p>
-""")
+"""
+        )
 
         return "\n".join(html_parts)
 
@@ -425,14 +496,16 @@ class ConfluenceService:
 
     def _render_action_items(self, tasks: List[Dict]) -> str:
         """Render action items as a task list"""
-        html = '<ac:task-list>\n'
+        html = "<ac:task-list>\n"
 
         for task in tasks:
             title = self._escape_html(task.get("title", "Task"))
             description = self._escape_html(task.get("description", ""))
             priority = task.get("priority", "medium")
 
-            priority_label = {"high": "HIGH", "medium": "MEDIUM", "low": "LOW"}.get(priority, "MEDIUM")
+            priority_label = {"high": "HIGH", "medium": "MEDIUM", "low": "LOW"}.get(
+                priority, "MEDIUM"
+            )
 
             html += f"""<ac:task>
   <ac:task-status>incomplete</ac:task-status>
@@ -488,10 +561,10 @@ class ConfluenceService:
     def _to_slug(self, text: str) -> str:
         """Convert text to URL-friendly slug"""
         slug = text.lower().strip()
-        slug = re.sub(r'[^\w\s-]', '', slug)
-        slug = re.sub(r'[\s_]+', '-', slug)
-        slug = re.sub(r'-+', '-', slug)
-        return slug.strip('-')
+        slug = re.sub(r"[^\w\s-]", "", slug)
+        slug = re.sub(r"[\s_]+", "-", slug)
+        slug = re.sub(r"-+", "-", slug)
+        return slug.strip("-")
 
     def checklist_to_confluence_storage(self, checklist: Dict[str, Any]) -> str:
         """
@@ -506,7 +579,8 @@ class ConfluenceService:
         html_parts = []
 
         # Header with project info
-        html_parts.append(f"""
+        html_parts.append(
+            f"""
 <ac:structured-macro ac:name="info">
   <ac:rich-text-body>
     <p><strong>Project:</strong> {self._escape_html(checklist.get('project_name', 'Unknown'))}</p>
@@ -514,11 +588,13 @@ class ConfluenceService:
     <p><strong>Generated:</strong> {checklist.get('created_at', 'Unknown')}</p>
   </ac:rich-text-body>
 </ac:structured-macro>
-""")
+"""
+        )
 
         # Statistics summary
-        stats = checklist.get('statistics', {})
-        html_parts.append(f"""
+        stats = checklist.get("statistics", {})
+        html_parts.append(
+            f"""
 <ac:structured-macro ac:name="panel">
   <ac:parameter ac:name="title">Checklist Summary</ac:parameter>
   <ac:rich-text-body>
@@ -538,47 +614,236 @@ class ConfluenceService:
     </table>
   </ac:rich-text-body>
 </ac:structured-macro>
-""")
+"""
+        )
 
         # Render each category
-        for category in checklist.get('categories', []):
+        for category in checklist.get("categories", []):
             html_parts.append(self._render_checklist_category(category))
 
         # Footer
-        html_parts.append("""
+        html_parts.append(
+            """
 <hr/>
 <p><em>Pre-Meeting Checklist generated by Strategic Build Planner - Northern Manufacturing Co., Inc.</em></p>
 <p><em>Review all items during the APQP kickoff meeting and update as decisions are made.</em></p>
-""")
+"""
+        )
 
         return "\n".join(html_parts)
+
+    # =========================================================================
+    # Search & Navigation Methods (for Confluence workflow)
+    # =========================================================================
+
+    async def search_by_job_number(
+        self, job_number: str, space_key: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Search for Confluence pages by job number (e.g., F12345)
+
+        Args:
+            job_number: Job number to search for (e.g., "F12345", "F-12345")
+            space_key: Space to search in (defaults to KB for Knowledge Base)
+
+        Returns:
+            List of matching pages with id, title, url, space_key
+        """
+        self._ensure_client()
+        space = space_key or "KB"  # Default to Knowledge Base space
+
+        # Normalize job number - allow flexible matching
+        # Search title and content for the job number
+        cql = f'space = "{space}" AND (title ~ "{job_number}" OR text ~ "{job_number}")'
+        logger.info(f"Searching for job number: {job_number} in space {space}")
+
+        return await self.search_pages(cql, limit=20)
+
+    async def get_space_hierarchy(
+        self, space_key: Optional[str] = None, parent_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get page hierarchy for browsing - returns children of a parent page
+
+        Args:
+            space_key: Space key (defaults to KB)
+            parent_id: Parent page ID. If None, returns top-level pages in the space.
+
+        Returns:
+            List of page dicts with id, title, has_children, type (customer/family/project)
+        """
+        self._ensure_client()
+        space = space_key or "KB"
+
+        try:
+            if parent_id:
+                # Get children of a specific page
+                children = self.client.get_page_child_by_type(
+                    page_id=parent_id, type="page", start=0, limit=100
+                )
+            else:
+                # Get top-level pages in the space (pages without parents)
+                # Use CQL to find pages that are direct children of the space home
+                cql = f'space = "{space}" AND type = page AND ancestor = root'
+                results = self.client.cql(cql, limit=100)
+                children = [r.get("content", r) for r in results.get("results", [])]
+
+            pages = []
+            for child in children:
+                page_id = child.get("id")
+                title = child.get("title", "Untitled")
+
+                # Check if this page has children
+                has_children = False
+                try:
+                    child_check = self.client.get_page_child_by_type(
+                        page_id=page_id, type="page", start=0, limit=1
+                    )
+                    has_children = len(child_check) > 0
+                except Exception:
+                    pass
+
+                # Determine page type based on hierarchy depth or labels
+                page_type = self._determine_page_type(page_id, title, parent_id)
+
+                pages.append(
+                    {
+                        "id": page_id,
+                        "title": title,
+                        "url": f"{self.url}/wiki/spaces/{space}/pages/{page_id}",
+                        "has_children": has_children,
+                        "type": page_type,
+                    }
+                )
+
+            logger.info(
+                f"Found {len(pages)} child pages for parent={parent_id or 'root'}"
+            )
+            return pages
+
+        except Exception as e:
+            logger.error(f"Failed to get hierarchy: {str(e)}")
+            raise
+
+    def _determine_page_type(
+        self, page_id: str, title: str, parent_id: Optional[str]
+    ) -> str:
+        """
+        Determine if a page is a customer, family, or project page
+        Based on hierarchy: Customer → Family of Parts → Project
+        """
+        # If no parent, it's likely a customer page
+        if not parent_id:
+            return "customer"
+
+        # Could check labels or depth for more accurate typing
+        # For now, use simple heuristics
+        title_lower = title.lower()
+        if "family" in title_lower or "parts" in title_lower:
+            return "family"
+        if any(
+            pattern in title_lower
+            for pattern in ["project", "job", "quote", "order", "f-", "f1", "f2"]
+        ):
+            return "project"
+
+        return "unknown"
+
+    async def get_page_with_ancestors(
+        self, page_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get a page with its full ancestor chain (for context)
+
+        Args:
+            page_id: Page ID
+
+        Returns:
+            Page dict with content, plus ancestors list
+        """
+        self._ensure_client()
+
+        try:
+            # Get page with ancestors expanded
+            result = self.client.get_page_by_id(
+                page_id=page_id, expand="body.storage,version,ancestors"
+            )
+
+            if not result:
+                return None
+
+            # Build ancestors list
+            ancestors = []
+            for ancestor in result.get("ancestors", []):
+                ancestors.append(
+                    {
+                        "id": ancestor.get("id"),
+                        "title": ancestor.get("title"),
+                    }
+                )
+
+            return {
+                "id": result.get("id"),
+                "title": result.get("title"),
+                "content": result.get("body", {}).get("storage", {}).get("value", ""),
+                "version": result.get("version", {}).get("number", 1),
+                "ancestors": ancestors,
+                "url": f"{self.url}/wiki/spaces/{self.space_key}/pages/{page_id}",
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to get page with ancestors: {str(e)}")
+            return None
+
+    async def get_page_content_text(self, page_id: str) -> Optional[str]:
+        """
+        Get page content as plain text (for AI analysis)
+
+        Args:
+            page_id: Page ID
+
+        Returns:
+            Plain text content extracted from Confluence storage format
+        """
+        page = await self.get_page(page_id)
+        if not page:
+            return None
+
+        # Strip HTML tags from storage format
+        html_content = page.get("content", "")
+        # Basic HTML stripping - could be enhanced with BeautifulSoup
+        text = re.sub(r"<[^>]+>", " ", html_content)
+        text = re.sub(r"\s+", " ", text).strip()
+        return text
 
     def _render_checklist_category(self, category: Dict[str, Any]) -> str:
         """Render a checklist category as HTML"""
         html = f"<h2>{self._escape_html(category.get('name', 'Category'))}</h2>\n"
 
-        items = category.get('items', [])
+        items = category.get("items", [])
         if not items:
             html += "<p><em>No items in this category.</em></p>\n"
             return html
 
         # Count requirements found
-        found = sum(1 for i in items if i.get('status') == 'requirement_found')
+        found = sum(1 for i in items if i.get("status") == "requirement_found")
         html += f"<p><em>{found} of {len(items)} requirements found</em></p>\n"
 
         html += "<table>\n"
-        html += "<tr><th>Status</th><th>Question</th><th>Answer</th><th>Source</th></tr>\n"
+        html += (
+            "<tr><th>Status</th><th>Question</th><th>Answer</th><th>Source</th></tr>\n"
+        )
 
         for item in items:
-            status = item.get('status', 'unknown')
-            question = self._escape_html(item.get('question', ''))
-            answer = self._escape_html(item.get('answer', 'N/A'))
-            source = self._escape_html(item.get('source', ''))
+            status = item.get("status", "unknown")
+            question = self._escape_html(item.get("question", ""))
+            answer = self._escape_html(item.get("answer", "N/A"))
+            source = self._escape_html(item.get("source", ""))
 
             # Status indicator
-            if status == 'requirement_found':
+            if status == "requirement_found":
                 status_html = '<ac:structured-macro ac:name="status"><ac:parameter ac:name="colour">Green</ac:parameter><ac:parameter ac:name="title">Found</ac:parameter></ac:structured-macro>'
-            elif status == 'no_requirement':
+            elif status == "no_requirement":
                 status_html = '<ac:structured-macro ac:name="status"><ac:parameter ac:name="colour">Grey</ac:parameter><ac:parameter ac:name="title">None</ac:parameter></ac:structured-macro>'
             else:
                 status_html = '<ac:structured-macro ac:name="status"><ac:parameter ac:name="colour">Red</ac:parameter><ac:parameter ac:name="title">Error</ac:parameter></ac:structured-macro>'

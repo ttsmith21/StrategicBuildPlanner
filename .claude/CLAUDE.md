@@ -10,14 +10,17 @@
 
 ### Start Development
 ```bash
-# Activate environment
-.\.venv\Scripts\Activate.ps1
+# Backend (port 8000) - run from project root
+cd backend && ../.venv/Scripts/python.exe -m uvicorn app.main:app --reload --port 8000
 
-# Start backend (port 8000)
-cd backend && uvicorn app.main:app --reload
+# Frontend (port 5173) - run from project root
+cd frontend && npm run dev
 
 # API docs at http://localhost:8000/docs
+# Frontend at http://localhost:5173
 ```
+
+**Note for Claude Code**: When starting servers via Bash, use Unix-style paths (`/c/Users/...`) not Windows paths (`C:\Users\...`).
 
 ### Key Directories
 - `backend/app/` - FastAPI application
@@ -71,13 +74,18 @@ async def generate_draft(request: DraftRequest) -> PlanResponse:
 ```
 
 ### Testing
-- Unit tests: `pytest backend/app/tests/ -v`
-- Coverage: `pytest --cov=app backend/app/tests/`
+- Unit tests: `pytest backend/ -v` (test files in backend root)
+- Coverage: `pytest --cov=app backend/`
 - Mock external APIs (OpenAI, Confluence, Asana)
 
 ---
 
 ## OpenAI Integration
+
+### SDK Version & Imports
+- Using OpenAI SDK v1.54+
+- Beta types (VectorStore, etc.) import from `openai.types.beta`, NOT `openai.types`
+- Example: `from openai.types.beta import VectorStore`
 
 ### Vector Store Workflow
 1. Upload files to OpenAI Files API
@@ -98,9 +106,10 @@ Schema in: `backend/app/models/plan_schema.py`
 
 ## Environment Variables
 
-Required in `.env`:
+### Backend (`.env` in project root)
 ```
 OPENAI_API_KEY=sk-proj-...  # Required for AI features
+CORS_ORIGINS=...            # Optional: comma-separated allowed origins
 ```
 
 Optional:
@@ -109,6 +118,13 @@ CONFLUENCE_BASE_URL=...     # For publishing
 CONFLUENCE_API_TOKEN=...
 ASANA_TOKEN=...             # For task creation
 ```
+
+### Frontend (`frontend/.env.local`)
+```
+VITE_API_URL=http://localhost:8000  # Backend API URL - MUST match backend port!
+```
+
+**Important**: If frontend gets connection errors, verify `VITE_API_URL` port matches where backend is running.
 
 ---
 
@@ -166,9 +182,47 @@ Use Chrome automation tools to:
 
 ---
 
+## Git Workflow (IMPORTANT)
+
+**Claude Code must follow this workflow automatically without being asked.**
+
+### For New Features
+1. **Create a feature branch** before making changes:
+   ```bash
+   git checkout -b feature/descriptive-name
+   ```
+2. **Commit frequently** with logical groupings (don't batch all changes into one commit)
+3. **Test before committing** - verify the backend starts and endpoints work
+4. **Push branch** when feature is complete and tested
+
+### Commit Guidelines
+- Use conventional commits: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`
+- Keep commits focused (one logical change per commit)
+- Include `Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>` in commit messages
+
+### When to Commit
+- After completing a new service or router
+- After fixing a bug
+- After significant refactoring
+- Before switching to a different task
+
+### Branch Naming
+- `feature/` - New features (e.g., `feature/confluence-search`)
+- `fix/` - Bug fixes (e.g., `fix/checklist-timeout`)
+- `refactor/` - Code improvements (e.g., `refactor/optimize-batching`)
+
+### Before Pushing
+- [ ] Run `black backend/` to format
+- [ ] Verify backend starts without errors
+- [ ] Test new endpoints work
+- [ ] Check `.env` is NOT staged
+
+---
+
 ## Before Committing
 
 - [ ] Run `black backend/` to format
-- [ ] Run `pytest backend/app/tests/ -v`
+- [ ] Run `pytest backend/ -v`
+- [ ] **Start backend** to verify no import errors: `cd backend && uvicorn app.main:app`
 - [ ] Check `.env` is NOT staged: `git status`
 - [ ] Update BUILD_STATUS.md if completing an epic
