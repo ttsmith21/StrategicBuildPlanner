@@ -1,0 +1,341 @@
+{
+  "version": "1.0",
+  "description": "Pre-Meeting Checklist Prompts for APQP Strategic Build Planning",
+  "categories": [
+    {
+      "id": "material_standards",
+      "name": "Material Standards",
+      "order": 1,
+      "prompts": [
+        {
+          "id": "mat_001",
+          "question": "Country of Origin or Melt",
+          "prompt": "Are there any restrictions on country of origin or melt for materials? Look for mentions of DFARS, domestic sourcing requirements, country restrictions, or melt origin specifications.",
+          "keywords": ["DFARS", "domestic", "country of origin", "melt", "USA", "American"],
+          "active": true
+        },
+        {
+          "id": "mat_002",
+          "question": "MTR for Weld Wire or Fasteners",
+          "prompt": "Are Material Test Reports (MTRs) required for weld wire, fasteners, or other consumables? Look for MTR requirements, material certifications, or traceability requirements for welding consumables and fasteners.",
+          "keywords": ["MTR", "material test report", "weld wire", "fasteners", "certification", "traceability"],
+          "active": true
+        },
+        {
+          "id": "mat_003",
+          "question": "AIS (American Iron and Steel)",
+          "prompt": "Are there American Iron and Steel (AIS) requirements? Look for AIS compliance, Buy America provisions, or domestic steel/iron sourcing mandates.",
+          "keywords": ["AIS", "American Iron and Steel", "domestic steel", "Buy America"],
+          "active": true
+        },
+        {
+          "id": "mat_004",
+          "question": "Buy American Requirements",
+          "prompt": "Are there Buy American Act or similar domestic content requirements? Look for BAA compliance, domestic manufacturing percentages, or US-made component requirements.",
+          "keywords": ["Buy American", "BAA", "domestic content", "US-made", "domestic manufacturing"],
+          "active": true
+        }
+      ]
+    },
+    {
+      "id": "fabrication_process",
+      "name": "Fabrication Process Standards",
+      "order": 2,
+      "prompts": [
+        {
+          "id": "fab_001",
+          "question": "ASME Stamps Required",
+          "prompt": "Are any ASME stamps or certifications required (U, S, R, PP, etc.)? Look for ASME code requirements, pressure vessel stamps, or boiler certifications.",
+          "keywords": ["ASME", "U stamp", "S stamp", "R stamp", "pressure vessel", "boiler"],
+          "active": true
+        },
+        {
+          "id": "fab_002",
+          "question": "Piping Codes (B31.1, B31.3, etc.)",
+          "prompt": "What piping codes apply to this project? Look for ASME B31.1 (Power Piping), B31.3 (Process Piping), B31.9 (Building Services), or other piping code requirements.",
+          "keywords": ["B31.1", "B31.3", "B31.9", "piping code", "power piping", "process piping"],
+          "active": true
+        },
+        {
+          "id": "fab_003",
+          "question": "AWS Welding Standards",
+          "prompt": "What AWS welding standards or codes apply? Look for AWS D1.1 (Structural Steel), D1.6 (Stainless Steel), or other AWS code requirements and weld procedure specifications.",
+          "keywords": ["AWS", "D1.1", "D1.6", "welding code", "WPS", "weld procedure"],
+          "active": true
+        },
+        {
+          "id": "fab_004",
+          "question": "Weld Restrictions or Special Requirements",
+          "prompt": "Are there any special welding restrictions or requirements? Look for prohibited weld types, required preheat/PWHT, welder qualification requirements, or weld joint restrictions.",
+          "keywords": ["weld restriction", "preheat", "PWHT", "post weld heat treatment", "welder qualification"],
+          "active": true
+        },
+        {
+          "id": "fab_005",
+          "question": "NDE Personnel Certification",
+          "prompt": "What certifications are required for NDE/NDT personnel? Look for ASNT Level II/III requirements, SNT-TC-1A compliance, or specific inspector qualification requirements.",
+          "keywords": ["ASNT", "NDE", "NDT", "Level II", "Level III", "SNT-TC-1A", "inspector"],
+          "active": true
+        }
+      ]
+    },
+    {
+      "id": "dimensional_tolerances",
+      "name": "Dimensional Tolerances",
+      "order": 3,
+      "prompts": [
+        {
+          "id": "dim_001",
+          "question": "General Tolerances",
+          "prompt": "What dimensional tolerances are specified? Look for general tolerances, GD&T requirements, or specific dimensional accuracy requirements for fabricated components.",
+          "keywords": ["tolerance", "GD&T", "dimensional", "accuracy", "deviation"],
+          "active": true
+        },
+        {
+          "id": "dim_002",
+          "question": "Machining Requirements",
+          "prompt": "Are there specific machining requirements or surface finish specifications? Look for machining tolerances, surface roughness (Ra values), or precision machining requirements.",
+          "keywords": ["machining", "surface finish", "Ra", "roughness", "precision", "CNC"],
+          "active": true
+        }
+      ]
+    },
+    {
+      "id": "finishing",
+      "name": "Finishing Requirements",
+      "order": 4,
+      "prompts": [
+        {
+          "id": "fin_001",
+          "question": "Stainless Steel Finishing",
+          "prompt": "What finishing requirements exist for stainless steel components? Look for passivation requirements, electropolishing, surface finish grades (#4, #8, etc.), or pickling requirements.",
+          "keywords": ["passivation", "electropolish", "stainless finish", "#4 finish", "#8 finish", "pickling"],
+          "active": true
+        },
+        {
+          "id": "fin_002",
+          "question": "Carbon Steel Finishing",
+          "prompt": "What finishing requirements exist for carbon steel components? Look for painting specifications, galvanizing requirements, primer requirements, or coating systems.",
+          "keywords": ["painting", "galvanizing", "primer", "coating", "SSPC", "blast", "prep"],
+          "active": true
+        },
+        {
+          "id": "fin_003",
+          "question": "Other Finishing Requirements",
+          "prompt": "Are there any other finishing requirements (anodizing, plating, powder coating, etc.)? Look for special surface treatments, protective coatings, or decorative finishes.",
+          "keywords": ["anodizing", "plating", "powder coat", "chrome", "zinc", "coating"],
+          "active": true
+        }
+      ]
+    },
+    {
+      "id": "quality_inspections",
+      "name": "Quality Inspections",
+      "order": 5,
+      "prompts": [
+        {
+          "id": "qa_001",
+          "question": "First Article Inspection (FAI)",
+          "prompt": "Is First Article Inspection (FAI) required? Look for AS9102 requirements, FAI documentation, or first piece inspection requirements.",
+          "keywords": ["FAI", "first article", "AS9102", "first piece inspection"],
+          "active": true
+        },
+        {
+          "id": "qa_002",
+          "question": "Certificate of Conformance (COC)",
+          "prompt": "Is a Certificate of Conformance (COC) required? Look for COC requirements, compliance certificates, or conformity documentation requirements.",
+          "keywords": ["COC", "certificate of conformance", "compliance certificate", "conformity"],
+          "active": true
+        },
+        {
+          "id": "qa_003",
+          "question": "Inspection Test Plan (ITP)",
+          "prompt": "Is an Inspection Test Plan (ITP) required? Look for ITP requirements, quality plans, or inspection and test planning documentation.",
+          "keywords": ["ITP", "inspection test plan", "quality plan", "test plan"],
+          "active": true
+        },
+        {
+          "id": "qa_004",
+          "question": "Dye Penetrant Testing (DPT/PT)",
+          "prompt": "Is Dye Penetrant Testing (PT/DPT) required? Look for liquid penetrant inspection requirements, PT acceptance criteria, or surface crack detection requirements.",
+          "keywords": ["DPT", "PT", "dye penetrant", "liquid penetrant", "surface inspection"],
+          "active": true
+        },
+        {
+          "id": "qa_005",
+          "question": "Magnetic Particle Testing (MT)",
+          "prompt": "Is Magnetic Particle Testing (MT) required? Look for MT inspection requirements, magnetic particle acceptance criteria, or ferromagnetic material inspection.",
+          "keywords": ["MT", "magnetic particle", "mag particle", "ferromagnetic"],
+          "active": true
+        },
+        {
+          "id": "qa_006",
+          "question": "Radiographic Testing (RT)",
+          "prompt": "Is Radiographic Testing (RT) required? Look for X-ray inspection requirements, radiography acceptance criteria, or weld radiograph requirements.",
+          "keywords": ["RT", "radiographic", "radiography", "X-ray", "xray"],
+          "active": true
+        },
+        {
+          "id": "qa_007",
+          "question": "Ultrasonic Testing (UT)",
+          "prompt": "Is Ultrasonic Testing (UT) required? Look for ultrasonic inspection requirements, UT acceptance criteria, or thickness verification requirements.",
+          "keywords": ["UT", "ultrasonic", "thickness testing"],
+          "active": true
+        },
+        {
+          "id": "qa_008",
+          "question": "Positive Material Identification (PMI)",
+          "prompt": "Is Positive Material Identification (PMI) required? Look for PMI testing requirements, material verification, or alloy confirmation requirements.",
+          "keywords": ["PMI", "positive material identification", "alloy verification", "XRF"],
+          "active": true
+        },
+        {
+          "id": "qa_009",
+          "question": "Hydrostatic Testing",
+          "prompt": "Is hydrostatic testing required? Look for hydro test requirements, pressure test specifications, or leak testing at pressure.",
+          "keywords": ["hydrostatic", "hydro test", "pressure test", "hydrotest"],
+          "active": true
+        },
+        {
+          "id": "qa_010",
+          "question": "Pneumatic Testing",
+          "prompt": "Is pneumatic testing required? Look for air test requirements, pneumatic pressure test specifications, or gas leak testing.",
+          "keywords": ["pneumatic", "air test", "gas test", "pneumatic pressure"],
+          "active": true
+        },
+        {
+          "id": "qa_011",
+          "question": "Leak Testing",
+          "prompt": "Are there leak testing requirements (bubble test, helium leak, etc.)? Look for leak detection methods, vacuum testing, or seal integrity testing.",
+          "keywords": ["leak test", "bubble test", "helium leak", "vacuum test", "seal test"],
+          "active": true
+        },
+        {
+          "id": "qa_012",
+          "question": "Visual Inspection (VT)",
+          "prompt": "What visual inspection requirements exist? Look for VT acceptance criteria, surface inspection requirements, or visual examination standards.",
+          "keywords": ["VT", "visual inspection", "visual examination", "surface inspection"],
+          "active": true
+        },
+        {
+          "id": "qa_013",
+          "question": "Dimensional Inspection",
+          "prompt": "What dimensional inspection requirements exist? Look for CMM requirements, measurement protocols, or dimensional verification procedures.",
+          "keywords": ["dimensional inspection", "CMM", "measurement", "verification", "gauging"],
+          "active": true
+        },
+        {
+          "id": "qa_014",
+          "question": "Hardness Testing",
+          "prompt": "Is hardness testing required? Look for Rockwell, Brinell, or Vickers hardness requirements, or heat treatment verification.",
+          "keywords": ["hardness", "Rockwell", "Brinell", "Vickers", "HRC", "HB"],
+          "active": true
+        },
+        {
+          "id": "qa_015",
+          "question": "Third-Party Inspection",
+          "prompt": "Is third-party or customer witness inspection required? Look for hold points, witness points, or third-party inspector requirements.",
+          "keywords": ["third party", "witness", "hold point", "customer inspection", "TPI"],
+          "active": true
+        }
+      ]
+    },
+    {
+      "id": "trial_fits_tests",
+      "name": "Trial Fits & Functional Tests",
+      "order": 6,
+      "prompts": [
+        {
+          "id": "trial_001",
+          "question": "Trial Fit / Fit-Up Requirements",
+          "prompt": "Are trial fits or fit-up assemblies required? Look for pre-assembly requirements, fit-up verification, or trial assembly before final welding.",
+          "keywords": ["trial fit", "fit-up", "pre-assembly", "fit check", "mock-up"],
+          "active": true
+        },
+        {
+          "id": "trial_002",
+          "question": "Functional Testing",
+          "prompt": "Are functional tests required before shipment? Look for operational testing, performance verification, or functional checkout requirements.",
+          "keywords": ["functional test", "operational test", "performance test", "checkout"],
+          "active": true
+        }
+      ]
+    },
+    {
+      "id": "packaging",
+      "name": "Packaging & Shipping",
+      "order": 7,
+      "prompts": [
+        {
+          "id": "pkg_001",
+          "question": "Crating Requirements",
+          "prompt": "Are there specific crating requirements? Look for wood crate specifications, ISPM-15 requirements, or export crating standards.",
+          "keywords": ["crating", "crate", "ISPM-15", "wood packaging", "export"],
+          "active": true
+        },
+        {
+          "id": "pkg_002",
+          "question": "Shrink Wrap / Protection",
+          "prompt": "Are there shrink wrap or protective wrapping requirements? Look for VCI protection, desiccant requirements, or moisture barrier specifications.",
+          "keywords": ["shrink wrap", "VCI", "desiccant", "moisture barrier", "protective wrap"],
+          "active": true
+        },
+        {
+          "id": "pkg_003",
+          "question": "Other Packaging Requirements",
+          "prompt": "Are there other packaging or shipping requirements? Look for labeling requirements, shipping orientation, special handling, or preservation requirements.",
+          "keywords": ["packaging", "labeling", "shipping", "handling", "preservation"],
+          "active": true
+        }
+      ]
+    },
+    {
+      "id": "documentation",
+      "name": "Documentation Requirements",
+      "order": 8,
+      "prompts": [
+        {
+          "id": "doc_001",
+          "question": "Data Book / Turnover Package",
+          "prompt": "Is a data book or turnover package required? Look for documentation package requirements, as-built documentation, or record retention requirements.",
+          "keywords": ["data book", "turnover package", "as-built", "documentation package"],
+          "active": true
+        },
+        {
+          "id": "doc_002",
+          "question": "Weld Maps / Weld Logs",
+          "prompt": "Are weld maps or weld logs required? Look for weld tracking requirements, weld identification, or weld documentation specifications.",
+          "keywords": ["weld map", "weld log", "weld tracking", "weld identification"],
+          "active": true
+        },
+        {
+          "id": "doc_003",
+          "question": "NDE Reports",
+          "prompt": "What NDE report formats or requirements exist? Look for NDE documentation standards, report format requirements, or inspection record specifications.",
+          "keywords": ["NDE report", "NDT report", "inspection report", "test report"],
+          "active": true
+        },
+        {
+          "id": "doc_004",
+          "question": "Material Traceability",
+          "prompt": "What material traceability requirements exist? Look for heat number tracking, lot traceability, or material identification requirements.",
+          "keywords": ["traceability", "heat number", "lot number", "material ID"],
+          "active": true
+        },
+        {
+          "id": "doc_005",
+          "question": "Drawing Submittal Requirements",
+          "prompt": "Are drawing submittals or approvals required before fabrication? Look for shop drawing requirements, approval workflows, or drawing revision control.",
+          "keywords": ["shop drawing", "submittal", "approval", "drawing review"],
+          "active": true
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "total_prompts": 37,
+    "created_at": "2026-01-14",
+    "last_updated": "2026-01-14",
+    "notes": "Initial set of APQP checklist prompts. Categories and prompts can be modified via admin interface."
+  }
+}

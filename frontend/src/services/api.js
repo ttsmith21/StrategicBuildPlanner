@@ -132,4 +132,50 @@ export async function searchConfluence(query) {
   return response.data;
 }
 
+/**
+ * Generate pre-meeting checklist
+ * @param {string} vectorStoreId - Vector store ID from ingest
+ * @param {string} projectName - Project name
+ * @param {string} customer - Optional customer name
+ * @param {string[]} categoryIds - Optional category filter
+ */
+export async function generateChecklist(vectorStoreId, projectName, customer = null, categoryIds = null) {
+  const response = await api.post('/api/checklist', {
+    vector_store_id: vectorStoreId,
+    project_name: projectName,
+    customer: customer,
+    category_ids: categoryIds,
+  });
+
+  return response.data;
+}
+
+/**
+ * Get checklist prompts
+ */
+export async function getChecklistPrompts() {
+  const response = await api.get('/api/checklist/prompts');
+  return response.data;
+}
+
+/**
+ * Get active checklist prompts
+ */
+export async function getActivePrompts() {
+  const response = await api.get('/api/checklist/prompts/active');
+  return response.data;
+}
+
+/**
+ * Publish checklist to Confluence
+ * @param {object} checklist - The checklist object to publish
+ */
+export async function publishChecklist(checklist) {
+  const response = await api.post('/api/checklist/publish', {
+    checklist: checklist,
+  });
+
+  return response.data;
+}
+
 export default api;

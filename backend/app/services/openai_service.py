@@ -7,7 +7,7 @@ import logging
 from typing import List, Optional, BinaryIO
 from datetime import datetime, timedelta
 from openai import OpenAI
-from openai.types.beta.vector_store import VectorStore
+from openai.types import VectorStore
 from openai.types.beta.threads.run import Run
 
 logger = logging.getLogger(__name__)

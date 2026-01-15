@@ -204,3 +204,68 @@ async def search_confluence_pages(
             status_code=500,
             detail=f"Search failed: {str(e)}"
         )
+
+
+@router.post("/publish/checklist", response_model=PublishResponse)
+async def publish_checklist_to_confluence(request: dict):
+    """
+    Publish a Pre-Meeting Checklist to Confluence
+
+    **Process:**
+    1. Convert checklist to Confluence storage format (HTML)
+    2. Create new page with checklist content
+    3. Return Confluence page URL
+
+    **Prerequisites:**
+    - Confluence credentials configured in .env
+    """
+    try:
+        checklist = request.get("checklist")
+        if not checklist:
+            raise HTTPException(status_code=400, detail="No checklist provided")
+
+        project_name = checklist.get("project_name", "Unknown Project")
+        logger.info(f"Publishing checklist to Confluence: {project_name}")
+
+        # Initialize Confluence service
+        confluence = ConfluenceService()
+
+        # Convert checklist to Confluence storage format
+        checklist_content = confluence.checklist_to_confluence_storage(checklist)
+
+        # Generate page title
+        page_title = f"Pre-Meeting Checklist - {project_name}"
+
+        # Create the page
+        result = await confluence.create_page(
+            title=page_title,
+            content=checklist_content,
+            parent_id=request.get("parent_page_id")
+        )
+
+        logger.info(
+            f"Successfully published checklist to Confluence: {result['title']} "
+            f"({result['id']}) - {result['url']}"
+        )
+
+        return PublishResponse(
+            page_id=result["id"],
+            page_url=result["url"],
+            page_title=result["title"],
+            published_at=datetime.utcnow()
+        )
+
+    except ValueError as e:
+        logger.error(f"Confluence configuration error: {str(e)}")
+        raise HTTPException(
+            status_code=503,
+            detail=str(e)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Confluence checklist publish failed: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to publish checklist to Confluence: {str(e)}"
+        )
