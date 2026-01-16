@@ -1,6 +1,6 @@
 /**
  * PreMeetingPrep Page (Phase 1)
- * Upload specs, generate checklist, publish to Confluence
+ * Upload specs, generate checklist, compare with vendor quote, publish to Confluence
  */
 
 import { useState, useCallback } from 'react';
@@ -12,16 +12,29 @@ import {
   AlertCircle,
   CheckCircle,
   ArrowRight,
+  FileText,
+  GitCompare,
+  SkipForward,
 } from 'lucide-react';
 
 import UploadZone from '../components/UploadZone';
 import ChecklistPreview from '../components/ChecklistPreview';
-import { ingestDocuments, generateChecklist, publishChecklist } from '../services/api';
+import QuoteUpload from '../components/QuoteUpload';
+import ComparisonView from '../components/ComparisonView';
+import {
+  ingestDocuments,
+  generateChecklist,
+  publishChecklist,
+  compareQuoteWithChecklist,
+  generateMergePreview,
+} from '../services/api';
 
 const WORKFLOW_STEPS = [
   { id: 'upload', label: 'Upload Specs', icon: FileUp },
   { id: 'checklist', label: 'Generate Checklist', icon: ListChecks },
-  { id: 'publish', label: 'Publish to Confluence', icon: PublishIcon },
+  { id: 'quote', label: 'Upload Quote', icon: FileText },
+  { id: 'compare', label: 'Compare', icon: GitCompare },
+  { id: 'publish', label: 'Publish', icon: PublishIcon },
 ];
 
 export default function PreMeetingPrep() {
@@ -38,6 +51,11 @@ export default function PreMeetingPrep() {
   const [checklist, setChecklist] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [confluenceUrl, setConfluenceUrl] = useState(null);
+
+  // Quote comparison state
+  const [quoteAssumptions, setQuoteAssumptions] = useState(null);
+  const [comparison, setComparison] = useState(null);
+  const [mergePreview, setMergePreview] = useState(null);
 
   // Handle file upload and ingestion
   const handleIngest = useCallback(async () => {
@@ -79,13 +97,68 @@ export default function PreMeetingPrep() {
     try {
       const result = await generateChecklist(vectorStoreId, projectName, customerName);
       setChecklist(result);
-      setCurrentStep('publish');
+      setCurrentStep('quote'); // Go to quote upload step
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to generate checklist');
     } finally {
       setIsLoading(false);
     }
   }, [vectorStoreId, projectName, customerName]);
+
+  // Handle quote extraction complete
+  const handleQuoteExtracted = useCallback((quote) => {
+    setQuoteAssumptions(quote);
+  }, []);
+
+  // Handle quote comparison
+  const handleCompareQuote = useCallback(async () => {
+    if (!quoteAssumptions || !checklist) {
+      setError('Need both checklist and quote to compare');
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const result = await compareQuoteWithChecklist(quoteAssumptions, checklist);
+      setComparison(result);
+      setCurrentStep('compare');
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to compare quote');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [quoteAssumptions, checklist]);
+
+  // Skip quote comparison
+  const handleSkipQuote = useCallback(() => {
+    setCurrentStep('publish');
+  }, []);
+
+  // Generate merge preview
+  const handleGenerateMergePreview = useCallback(async () => {
+    if (!checklist || !quoteAssumptions || !comparison) {
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const result = await generateMergePreview(checklist, quoteAssumptions, comparison);
+      setMergePreview(result);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to generate merge preview');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [checklist, quoteAssumptions, comparison]);
+
+  // Proceed to publish after comparison
+  const handleProceedToPublish = useCallback(() => {
+    setCurrentStep('publish');
+  }, []);
 
   // Handle publish to Confluence
   const handlePublish = useCallback(async () => {
@@ -117,6 +190,10 @@ export default function PreMeetingPrep() {
     setChecklist(null);
     setConfluenceUrl(null);
     setError(null);
+    // Reset quote state
+    setQuoteAssumptions(null);
+    setComparison(null);
+    setMergePreview(null);
   };
 
   const getStepStatus = (stepId) => {
@@ -346,8 +423,104 @@ export default function PreMeetingPrep() {
           </div>
         )}
 
-        {/* Step: Review Checklist */}
-        {(currentStep === 'checklist' && checklist) || currentStep === 'publish' ? (
+        {/* Step: Upload Quote */}
+        {currentStep === 'quote' && (
+          <div className="max-w-4xl mx-auto">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Quote Upload */}
+              <div>
+                <QuoteUpload
+                  projectName={projectName}
+                  onQuoteExtracted={handleQuoteExtracted}
+                  disabled={isLoading}
+                />
+
+                {/* Compare Button */}
+                {quoteAssumptions && (
+                  <button
+                    onClick={handleCompareQuote}
+                    disabled={isLoading}
+                    className="mt-4 w-full flex items-center justify-center gap-2 px-6 py-3 bg-primary-600 text-white font-medium rounded-lg hover:bg-primary-700 disabled:opacity-50"
+                  >
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                        Comparing...
+                      </>
+                    ) : (
+                      <>
+                        <GitCompare className="h-5 w-5" />
+                        Compare Quote vs. Checklist
+                      </>
+                    )}
+                  </button>
+                )}
+
+                {/* Skip Button */}
+                <button
+                  onClick={handleSkipQuote}
+                  disabled={isLoading}
+                  className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-2 text-gray-600 font-medium border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                >
+                  <SkipForward className="h-4 w-4" />
+                  Skip Quote Comparison
+                </button>
+              </div>
+
+              {/* Checklist Preview (collapsed) */}
+              <div className="bg-white rounded-lg border border-gray-200 p-4">
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                  Generated Checklist
+                </h3>
+                <p className="text-sm text-gray-600 mb-4">
+                  {checklist?.statistics?.requirements_found || 0} requirements found from customer documents
+                </p>
+                <div className="max-h-80 overflow-y-auto border border-gray-100 rounded-lg">
+                  <ChecklistPreview
+                    checklist={checklist}
+                    onChecklistChange={setChecklist}
+                    isLoading={false}
+                    compact={true}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Step: Comparison Results */}
+        {currentStep === 'compare' && (
+          <div className="max-w-5xl mx-auto space-y-6">
+            <ComparisonView
+              comparison={comparison}
+              mergePreview={mergePreview}
+              onRequestMerge={handleGenerateMergePreview}
+              isLoading={isLoading}
+            />
+
+            {/* Action Buttons */}
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setCurrentStep('quote')}
+                disabled={isLoading}
+                className="px-4 py-2 text-gray-600 font-medium border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Back to Quote
+              </button>
+              <button
+                onClick={handleProceedToPublish}
+                disabled={isLoading}
+                className="flex items-center gap-2 px-6 py-3 bg-primary-600 text-white font-medium rounded-lg hover:bg-primary-700 disabled:opacity-50"
+              >
+                <PublishIcon className="h-5 w-5" />
+                Proceed to Publish
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Step: Publish */}
+        {currentStep === 'publish' && (
           <div className="space-y-6">
             <div className="flex items-center justify-between">
               <div>
@@ -356,6 +529,16 @@ export default function PreMeetingPrep() {
                 </h2>
                 {customerName && (
                   <p className="text-sm text-gray-500">Customer: {customerName}</p>
+                )}
+                {comparison && (
+                  <p className="text-sm text-gray-500">
+                    Quote compared: {comparison.vendor_name || 'Unknown vendor'}
+                    {comparison.statistics?.total_conflicts > 0 && (
+                      <span className="text-red-600 ml-2">
+                        ({comparison.statistics.total_conflicts} conflicts)
+                      </span>
+                    )}
+                  </p>
                 )}
               </div>
               <div className="flex gap-3">
@@ -401,13 +584,40 @@ export default function PreMeetingPrep() {
               </div>
             )}
 
+            {/* Show comparison summary if we did comparison */}
+            {comparison && (
+              <div className="bg-white rounded-lg border border-gray-200 p-4">
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">
+                  Comparison Summary
+                </h3>
+                <div className="grid grid-cols-4 gap-3 text-sm">
+                  <div className="p-2 bg-green-50 rounded text-center">
+                    <p className="text-lg font-bold text-green-700">{comparison.statistics?.total_matches || 0}</p>
+                    <p className="text-xs text-green-600">Matches</p>
+                  </div>
+                  <div className="p-2 bg-red-50 rounded text-center">
+                    <p className="text-lg font-bold text-red-700">{comparison.statistics?.total_conflicts || 0}</p>
+                    <p className="text-xs text-red-600">Conflicts</p>
+                  </div>
+                  <div className="p-2 bg-blue-50 rounded text-center">
+                    <p className="text-lg font-bold text-blue-700">{comparison.statistics?.quote_only_count || 0}</p>
+                    <p className="text-xs text-blue-600">Quote Only</p>
+                  </div>
+                  <div className="p-2 bg-orange-50 rounded text-center">
+                    <p className="text-lg font-bold text-orange-700">{comparison.statistics?.checklist_only_count || 0}</p>
+                    <p className="text-xs text-orange-600">Unaddressed</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <ChecklistPreview
               checklist={checklist}
               onChecklistChange={setChecklist}
               isLoading={isLoading && !checklist}
             />
           </div>
-        ) : null}
+        )}
       </main>
     </div>
   );

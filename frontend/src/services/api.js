@@ -178,4 +178,151 @@ export async function publishChecklist(checklist) {
   return response.data;
 }
 
+// ============================================================================
+// Confluence Navigation API
+// ============================================================================
+
+/**
+ * Search Confluence pages by job number (e.g., F12345)
+ * @param {string} query - Job number or search term
+ * @param {string} space - Confluence space key (default: KB)
+ */
+export async function searchConfluencePages(query, space = 'KB') {
+  const response = await api.get('/api/confluence/search', {
+    params: { q: query, space },
+  });
+  return response.data;
+}
+
+/**
+ * Get Confluence page hierarchy for browsing
+ * @param {string} parentId - Parent page ID (null for root)
+ * @param {string} space - Confluence space key
+ */
+export async function getConfluenceHierarchy(parentId = null, space = 'KB') {
+  const response = await api.get('/api/confluence/hierarchy', {
+    params: { parent_id: parentId, space },
+  });
+  return response.data;
+}
+
+/**
+ * Get a Confluence page with its ancestors
+ * @param {string} pageId - Page ID
+ */
+export async function getConfluencePage(pageId) {
+  const response = await api.get(`/api/confluence/page/${pageId}`);
+  return response.data;
+}
+
+/**
+ * Get Confluence page content as plain text
+ * @param {string} pageId - Page ID
+ */
+export async function getConfluencePageText(pageId) {
+  const response = await api.get(`/api/confluence/page/${pageId}/text`);
+  return response.data;
+}
+
+/**
+ * Get full context for a Confluence page (page + ancestors + children)
+ * @param {string} pageId - Page ID
+ */
+export async function getConfluencePageContext(pageId) {
+  const response = await api.get(`/api/confluence/page/${pageId}/context`);
+  return response.data;
+}
+
+// ============================================================================
+// Quote Comparison API
+// ============================================================================
+
+/**
+ * Extract assumptions from a vendor quote PDF
+ * @param {File} file - Quote PDF file
+ * @param {string} projectName - Project name for context
+ * @param {function} onProgress - Upload progress callback
+ */
+export async function extractQuoteAssumptions(file, projectName, onProgress) {
+  const formData = new FormData();
+  formData.append('file', file);
+  if (projectName) {
+    formData.append('project_name', projectName);
+  }
+
+  const response = await api.post('/api/quote/extract', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+    onUploadProgress: (progressEvent) => {
+      if (onProgress) {
+        const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        onProgress(percent);
+      }
+    },
+  });
+
+  return response.data;
+}
+
+/**
+ * Compare quote assumptions against checklist requirements
+ * @param {object} quoteAssumptions - Output from extractQuoteAssumptions
+ * @param {object} checklist - Checklist from generateChecklist
+ */
+export async function compareQuoteWithChecklist(quoteAssumptions, checklist) {
+  const response = await api.post('/api/quote/compare', {
+    quote_assumptions: quoteAssumptions,
+    checklist: checklist,
+  });
+
+  return response.data;
+}
+
+/**
+ * Generate merge preview with conflict highlights
+ * @param {object} checklist - Original checklist
+ * @param {object} quoteAssumptions - Extracted quote assumptions
+ * @param {object} comparison - Comparison results
+ */
+export async function generateMergePreview(checklist, quoteAssumptions, comparison) {
+  const response = await api.post('/api/quote/merge-preview', {
+    checklist: checklist,
+    quote_assumptions: quoteAssumptions,
+    comparison: comparison,
+  });
+
+  return response.data;
+}
+
+/**
+ * Run full quote comparison workflow in one call
+ * @param {File} quoteFile - Quote PDF file
+ * @param {object} checklist - Checklist to compare against
+ * @param {string} projectName - Project name
+ * @param {function} onProgress - Upload progress callback
+ */
+export async function fullQuoteWorkflow(quoteFile, checklist, projectName, onProgress) {
+  const formData = new FormData();
+  formData.append('quote_file', quoteFile);
+  formData.append('checklist', JSON.stringify(checklist));
+  if (projectName) {
+    formData.append('project_name', projectName);
+  }
+
+  const response = await api.post('/api/quote/full-workflow', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+    onUploadProgress: (progressEvent) => {
+      if (onProgress) {
+        const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        onProgress(percent);
+      }
+    },
+  });
+
+  return response.data;
+}
+
 export default api;

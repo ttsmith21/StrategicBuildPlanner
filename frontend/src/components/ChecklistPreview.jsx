@@ -120,8 +120,8 @@ function ChecklistItem({ item, onUpdate }) {
   );
 }
 
-function CategorySection({ category, onUpdateItem }) {
-  const [isExpanded, setIsExpanded] = useState(true);
+function CategorySection({ category, onUpdateItem, compact = false }) {
+  const [isExpanded, setIsExpanded] = useState(!compact);
 
   const foundCount = category.items.filter(
     (i) => i.status === 'requirement_found'
@@ -166,6 +166,7 @@ export default function ChecklistPreview({
   checklist,
   onChecklistChange,
   isLoading,
+  compact = false,
 }) {
   if (isLoading) {
     return (
@@ -219,55 +220,58 @@ export default function ChecklistPreview({
   };
 
   return (
-    <div className="space-y-6">
-      {/* Statistics Summary */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          <div className="text-center">
-            <p className="text-2xl font-bold text-gray-900">
-              {checklist.statistics.total_prompts}
-            </p>
-            <p className="text-sm text-gray-500">Total Items</p>
+    <div className={compact ? 'space-y-2' : 'space-y-6'}>
+      {/* Statistics Summary - hide in compact mode */}
+      {!compact && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div className="text-center">
+              <p className="text-2xl font-bold text-gray-900">
+                {checklist.statistics.total_prompts}
+              </p>
+              <p className="text-sm text-gray-500">Total Items</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold text-green-600">
+                {checklist.statistics.requirements_found}
+              </p>
+              <p className="text-sm text-gray-500">Requirements Found</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold text-gray-400">
+                {checklist.statistics.no_requirements}
+              </p>
+              <p className="text-sm text-gray-500">No Requirements</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold text-red-500">
+                {checklist.statistics.errors}
+              </p>
+              <p className="text-sm text-gray-500">Errors</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold text-primary-600">
+                {checklist.statistics.coverage_percentage}%
+              </p>
+              <p className="text-sm text-gray-500">Coverage</p>
+            </div>
           </div>
-          <div className="text-center">
-            <p className="text-2xl font-bold text-green-600">
-              {checklist.statistics.requirements_found}
+          {checklist.generation_time_seconds && (
+            <p className="text-center text-xs text-gray-400 mt-2">
+              Generated in {checklist.generation_time_seconds.toFixed(1)} seconds
             </p>
-            <p className="text-sm text-gray-500">Requirements Found</p>
-          </div>
-          <div className="text-center">
-            <p className="text-2xl font-bold text-gray-400">
-              {checklist.statistics.no_requirements}
-            </p>
-            <p className="text-sm text-gray-500">No Requirements</p>
-          </div>
-          <div className="text-center">
-            <p className="text-2xl font-bold text-red-500">
-              {checklist.statistics.errors}
-            </p>
-            <p className="text-sm text-gray-500">Errors</p>
-          </div>
-          <div className="text-center">
-            <p className="text-2xl font-bold text-primary-600">
-              {checklist.statistics.coverage_percentage}%
-            </p>
-            <p className="text-sm text-gray-500">Coverage</p>
-          </div>
+          )}
         </div>
-        {checklist.generation_time_seconds && (
-          <p className="text-center text-xs text-gray-400 mt-2">
-            Generated in {checklist.generation_time_seconds.toFixed(1)} seconds
-          </p>
-        )}
-      </div>
+      )}
 
       {/* Categories */}
-      <div className="space-y-4">
+      <div className={compact ? 'space-y-2' : 'space-y-4'}>
         {checklist.categories.map((category) => (
           <CategorySection
             key={category.id}
             category={category}
             onUpdateItem={handleUpdateItem}
+            compact={compact}
           />
         ))}
       </div>
