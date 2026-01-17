@@ -66,7 +66,7 @@ class ConfluenceService:
                 title = content.get("title")
 
                 # Build page URL
-                page_url = f"{self.url}/wiki/spaces/{self.space_key}/pages/{page_id}"
+                page_url = f"{self.url}/spaces/{self.space_key}/pages/{page_id}"
 
                 pages.append(
                     {
@@ -149,7 +149,7 @@ class ConfluenceService:
             )
 
             page_id = result.get("id")
-            page_url = f"{self.url}/wiki/spaces/{space}/pages/{page_id}"
+            page_url = f"{self.url}/spaces/{space}/pages/{page_id}"
 
             logger.info(f"Created Confluence page: {title} ({page_id})")
 
@@ -185,7 +185,7 @@ class ConfluenceService:
                 page_id=page_id, title=title, body=content, representation="storage"
             )
 
-            page_url = f"{self.url}/wiki/spaces/{self.space_key}/pages/{page_id}"
+            page_url = f"{self.url}/spaces/{self.space_key}/pages/{page_id}"
 
             logger.info(f"Updated Confluence page: {title} ({page_id})")
 
@@ -617,6 +617,40 @@ class ConfluenceService:
 """
         )
 
+        # Resolution Summary (if resolutions were applied)
+        resolution_summary = checklist.get("resolution_summary", {})
+        if checklist.get("resolutions_applied") or resolution_summary.get("total_resolved", 0) > 0:
+            html_parts.append(
+                f"""
+<ac:structured-macro ac:name="panel">
+  <ac:parameter ac:name="title">Quote Comparison Resolutions</ac:parameter>
+  <ac:parameter ac:name="bgColor">#e3fcef</ac:parameter>
+  <ac:rich-text-body>
+    <table>
+      <tr>
+        <td><strong>Total Resolved:</strong></td>
+        <td>{resolution_summary.get('total_resolved', 0)}</td>
+        <td><strong>Kept Customer Spec:</strong></td>
+        <td>{resolution_summary.get('kept_customer_spec', 0)}</td>
+      </tr>
+      <tr>
+        <td><strong>Accepted Quote:</strong></td>
+        <td>{resolution_summary.get('accepted_quote', 0)}</td>
+        <td><strong>AI Suggestion:</strong></td>
+        <td>{resolution_summary.get('used_ai_suggestion', 0)}</td>
+      </tr>
+      <tr>
+        <td><strong>Action Items:</strong></td>
+        <td>{resolution_summary.get('action_items_created', 0)}</td>
+        <td><strong>Custom:</strong></td>
+        <td>{resolution_summary.get('custom_resolutions', 0)}</td>
+      </tr>
+    </table>
+  </ac:rich-text-body>
+</ac:structured-macro>
+"""
+            )
+
         # Render each category
         for category in checklist.get("categories", []):
             html_parts.append(self._render_checklist_category(category))
@@ -631,6 +665,234 @@ class ConfluenceService:
         )
 
         return "\n".join(html_parts)
+
+    # =========================================================================
+    # Template Filling Methods (for updating existing pages with checklist data)
+    # =========================================================================
+
+    # Mapping between checklist categories and template section headings
+    TEMPLATE_SECTION_MAP = {
+        "Material Standards": ["Material Restrictions", "Welding Code & Materials"],
+        "Fabrication Process Standards": ["Build Strategy"],
+        "Welding & NDE Requirements": ["Welding Code & Materials", "MTRs", "Quality Plan"],
+        "Quality Documentation": ["Quality Plan (ITP)"],
+        "Painting & Coating": ["Finishing / cosmetic strategy"],
+        "Dimensional & Tolerances": ["Quality Plan"],
+        "Testing Requirements": ["Quality Plan", "Positive Material Inspection"],
+        "Packaging & Shipping": ["Packaging strategy"],
+    }
+
+    async def fill_template_with_checklist(
+        self,
+        page_id: str,
+        checklist: Dict[str, Any],
+        quote_assumptions: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Fill an existing Confluence template page with checklist data.
+
+        Args:
+            page_id: ID of the template page to update
+            checklist: Checklist dictionary with categories and items
+            quote_assumptions: Optional list of quote assumptions to add
+
+        Returns:
+            Dict with updated page info (id, title, url, version)
+        """
+        self._ensure_client()
+
+        # Get existing page content
+        page = await self.get_page(page_id)
+        if not page:
+            raise ValueError(f"Page {page_id} not found")
+
+        existing_content = page.get("content", "")
+        page_title = page.get("title", "")
+
+        logger.info(f"Filling template for page: {page_title} ({page_id})")
+
+        # Build checklist data by category for easy lookup
+        checklist_by_category = {}
+        for category in checklist.get("categories", []):
+            cat_name = category.get("name", "")
+            items_with_answers = [
+                item for item in category.get("items", [])
+                if item.get("answer") and item.get("status") == "requirement_found"
+            ]
+            if items_with_answers:
+                checklist_by_category[cat_name] = items_with_answers
+
+        # Update the content
+        updated_content = self._inject_checklist_into_template(
+            existing_content, checklist_by_category, quote_assumptions
+        )
+
+        # Update the page
+        result = await self.update_page(page_id, page_title, updated_content)
+
+        logger.info(f"Successfully updated template page: {page_title}")
+        return result
+
+    def _inject_checklist_into_template(
+        self,
+        content: str,
+        checklist_by_category: Dict[str, List[Dict]],
+        quote_assumptions: Optional[List[str]] = None,
+    ) -> str:
+        """
+        Inject checklist data into template content.
+
+        Strategy:
+        1. Find section headings (h2, h3) in the content
+        2. For each section, find matching checklist categories
+        3. Insert checklist items after the section heading
+        4. Add quote assumptions to a dedicated section
+        """
+        # Add quote assumptions section if provided
+        if quote_assumptions:
+            content = self._add_quote_assumptions_section(content, quote_assumptions)
+
+        # For each checklist category, find matching template sections and inject data
+        for category_name, items in checklist_by_category.items():
+            template_sections = self.TEMPLATE_SECTION_MAP.get(category_name, [])
+
+            for section_name in template_sections:
+                content = self._inject_items_into_section(
+                    content, section_name, category_name, items
+                )
+
+        return content
+
+    def _add_quote_assumptions_section(
+        self, content: str, assumptions: List[str]
+    ) -> str:
+        """Add or update quote assumptions bullet list in the content."""
+        # Build the assumptions HTML
+        assumptions_html = "<ul>\n"
+        for assumption in assumptions:
+            assumptions_html += f'<li>{self._escape_html(assumption)} <strong>[Quote]</strong></li>\n'
+        assumptions_html += "</ul>\n"
+
+        # Look for existing [Quote] section or assumptions marker
+        # Try to find a section that already has [Quote] markers
+        quote_pattern = r'(<ul>[\s\S]*?\[Quote\][\s\S]*?</ul>)'
+        if re.search(quote_pattern, content):
+            # Replace existing quote assumptions section
+            content = re.sub(quote_pattern, assumptions_html, content, count=1)
+        else:
+            # Look for "Assumptions" or similar heading and add after it
+            assumption_heading_pattern = r'(<h[23][^>]*>.*?[Aa]ssumptions?.*?</h[23]>)'
+            match = re.search(assumption_heading_pattern, content)
+            if match:
+                # Insert after the heading
+                insert_pos = match.end()
+                content = content[:insert_pos] + "\n" + assumptions_html + content[insert_pos:]
+            else:
+                # Add at the beginning after any info panel
+                info_panel_end = content.find('</ac:structured-macro>')
+                if info_panel_end > 0:
+                    insert_pos = info_panel_end + len('</ac:structured-macro>')
+                    assumptions_section = f"""
+<h2>Quote Assumptions</h2>
+{assumptions_html}
+"""
+                    content = content[:insert_pos] + assumptions_section + content[insert_pos:]
+
+        return content
+
+    def _inject_items_into_section(
+        self,
+        content: str,
+        section_name: str,
+        category_name: str,
+        items: List[Dict],
+    ) -> str:
+        """Inject checklist items into a specific template section.
+
+        Supports multiple section formats:
+        1. Heading tags: <h2>Section Name</h2>, <h3>Section Name</h3>
+        2. Bold text: <strong>Section Name:</strong>, <b>Section Name:</b>
+        3. Table cells with bold: <td><strong>Section Name</strong></td>
+        """
+        escaped_name = re.escape(section_name)
+
+        # Try multiple patterns to find the section
+        patterns = [
+            # Pattern 1: h2/h3 headings
+            rf'(<h[23][^>]*>[^<]*{escaped_name}[^<]*</h[23]>)',
+            # Pattern 2: Bold text with colon (inline label style)
+            rf'(<strong>{escaped_name}:?</strong>)',
+            rf'(<b>{escaped_name}:?</b>)',
+            # Pattern 3: Paragraph containing bold section name
+            rf'(<p[^>]*><strong>{escaped_name}:?</strong>)',
+            # Pattern 4: Table cell with bold
+            rf'(<td[^>]*><strong>{escaped_name}</strong></td>)',
+            # Pattern 5: Any tag containing the section name as text
+            rf'(<[^>]+>[^<]*{escaped_name}[^<]*</[^>]+>)',
+        ]
+
+        match = None
+        for pattern in patterns:
+            match = re.search(pattern, content, re.IGNORECASE)
+            if match:
+                logger.debug(f"Found section '{section_name}' with pattern: {pattern[:50]}...")
+                break
+
+        if not match:
+            logger.debug(f"Section '{section_name}' not found in template")
+            return content
+
+        # Build the items HTML - use compact format for inline sections
+        items_html = f" <em>[From {category_name}]</em> "
+
+        # For heading-style sections, use block format
+        if match.group(0).startswith('<h'):
+            items_html = f"\n<p><strong>From {category_name}:</strong></p>\n<ul>\n"
+            for item in items:
+                question = self._escape_html(item.get("question", ""))
+                answer = self._escape_html(item.get("answer", ""))
+                resolution = item.get("resolution")
+
+                if resolution:
+                    res_note = resolution.get("note", "")
+                    items_html += f'<li><strong>{question}:</strong> {answer} <em>({res_note})</em></li>\n'
+                else:
+                    items_html += f'<li><strong>{question}:</strong> {answer}</li>\n'
+            items_html += "</ul>\n"
+            insert_pos = match.end()
+        else:
+            # For inline sections (bold labels), append values after the label
+            # Find what comes after the matched element
+            inline_values = []
+            for item in items:
+                answer = self._escape_html(item.get("answer", ""))
+                inline_values.append(answer)
+
+            # Join multiple values with semicolons
+            values_text = "; ".join(inline_values)
+            items_html = f" {values_text}"
+
+            # Find the end of the current value (look for next tag or end of line)
+            insert_pos = match.end()
+
+            # Skip any existing content until we hit a line break or new section
+            remaining = content[insert_pos:]
+            # Find where to insert (after any existing text, before next element)
+            next_tag = re.search(r'<(?:p|br|div|h[123456]|strong|table|tr|td)', remaining, re.IGNORECASE)
+            if next_tag:
+                # Check if there's text content between match and next tag
+                between = remaining[:next_tag.start()]
+                if between.strip():
+                    # There's existing content, append with separator
+                    items_html = f"; {values_text}"
+                    insert_pos = insert_pos + next_tag.start()
+                else:
+                    # Insert right after the label
+                    pass
+
+        content = content[:insert_pos] + items_html + content[insert_pos:]
+
+        return content
 
     # =========================================================================
     # Search & Navigation Methods (for Confluence workflow)
@@ -682,11 +944,26 @@ class ConfluenceService:
                     page_id=parent_id, type="page", start=0, limit=100
                 )
             else:
-                # Get top-level pages in the space (pages without parents)
-                # Use CQL to find pages that are direct children of the space home
-                cql = f'space = "{space}" AND type = page AND ancestor = root'
-                results = self.client.cql(cql, limit=100)
-                children = [r.get("content", r) for r in results.get("results", [])]
+                # Get top-level pages in the space
+                # First get the space's homepage, then get its children
+                try:
+                    space_info = self.client.get_space(space, expand="homepage")
+                    homepage_id = space_info.get("homepage", {}).get("id")
+                    if homepage_id:
+                        children = self.client.get_page_child_by_type(
+                            page_id=homepage_id, type="page", start=0, limit=100
+                        )
+                    else:
+                        # Fallback: just get all pages in the space
+                        cql = f'space = "{space}" AND type = page'
+                        results = self.client.cql(cql, limit=50)
+                        children = [r.get("content", r) for r in results.get("results", [])]
+                except Exception as e:
+                    logger.warning(f"Could not get space homepage: {e}")
+                    # Fallback: just get all pages in the space
+                    cql = f'space = "{space}" AND type = page'
+                    results = self.client.cql(cql, limit=50)
+                    children = [r.get("content", r) for r in results.get("results", [])]
 
             pages = []
             for child in children:
@@ -710,7 +987,7 @@ class ConfluenceService:
                     {
                         "id": page_id,
                         "title": title,
-                        "url": f"{self.url}/wiki/spaces/{space}/pages/{page_id}",
+                        "url": f"{self.url}/spaces/{space}/pages/{page_id}",
                         "has_children": has_children,
                         "type": page_type,
                     }
@@ -788,7 +1065,7 @@ class ConfluenceService:
                 "content": result.get("body", {}).get("storage", {}).get("value", ""),
                 "version": result.get("version", {}).get("number", 1),
                 "ancestors": ancestors,
-                "url": f"{self.url}/wiki/spaces/{self.space_key}/pages/{page_id}",
+                "url": f"{self.url}/spaces/{self.space_key}/pages/{page_id}",
             }
 
         except Exception as e:
@@ -829,16 +1106,25 @@ class ConfluenceService:
         found = sum(1 for i in items if i.get("status") == "requirement_found")
         html += f"<p><em>{found} of {len(items)} requirements found</em></p>\n"
 
+        # Check if any items have resolutions
+        has_resolutions = any(item.get("resolution") for item in items)
+
         html += "<table>\n"
-        html += (
-            "<tr><th>Status</th><th>Question</th><th>Answer</th><th>Source</th></tr>\n"
-        )
+        if has_resolutions:
+            html += (
+                "<tr><th>Status</th><th>Question</th><th>Answer</th><th>Source</th><th>Resolution</th></tr>\n"
+            )
+        else:
+            html += (
+                "<tr><th>Status</th><th>Question</th><th>Answer</th><th>Source</th></tr>\n"
+            )
 
         for item in items:
             status = item.get("status", "unknown")
             question = self._escape_html(item.get("question", ""))
             answer = self._escape_html(item.get("answer", "N/A"))
             source = self._escape_html(item.get("source", ""))
+            resolution = item.get("resolution")
 
             # Status indicator
             if status == "requirement_found":
@@ -848,7 +1134,17 @@ class ConfluenceService:
             else:
                 status_html = '<ac:structured-macro ac:name="status"><ac:parameter ac:name="colour">Red</ac:parameter><ac:parameter ac:name="title">Error</ac:parameter></ac:structured-macro>'
 
-            html += f"<tr><td>{status_html}</td><td><strong>{question}</strong></td><td>{answer}</td><td><em>{source}</em></td></tr>\n"
+            if has_resolutions:
+                # Show resolution info if present
+                if resolution:
+                    res_type = resolution.get("type", "")
+                    res_note = resolution.get("note", "")
+                    res_html = f'<ac:structured-macro ac:name="status"><ac:parameter ac:name="colour">Blue</ac:parameter><ac:parameter ac:name="title">{self._escape_html(res_type)}</ac:parameter></ac:structured-macro><br/><small>{self._escape_html(res_note)}</small>'
+                else:
+                    res_html = ""
+                html += f"<tr><td>{status_html}</td><td><strong>{question}</strong></td><td>{answer}</td><td><em>{source}</em></td><td>{res_html}</td></tr>\n"
+            else:
+                html += f"<tr><td>{status_html}</td><td><strong>{question}</strong></td><td>{answer}</td><td><em>{source}</em></td></tr>\n"
 
         html += "</table>\n"
         return html

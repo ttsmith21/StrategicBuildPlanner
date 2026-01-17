@@ -19,49 +19,52 @@ TEST_FILES_DIR = Path(__file__).parent.parent.parent / "inputs"
 
 def test_ingest_endpoint():
     """Test the /api/ingest endpoint"""
-    
+
     print("🧪 Testing Ingest API Endpoint")
     print(f"API URL: {API_URL}")
     print(f"Project: {PROJECT_NAME}")
     print("-" * 60)
-    
+
     # Find test files
-    test_files = list(TEST_FILES_DIR.glob("*.pdf")) + \
-                 list(TEST_FILES_DIR.glob("*.txt")) + \
-                 list(TEST_FILES_DIR.glob("*.docx"))
-    
+    test_files = (
+        list(TEST_FILES_DIR.glob("*.pdf"))
+        + list(TEST_FILES_DIR.glob("*.txt"))
+        + list(TEST_FILES_DIR.glob("*.docx"))
+    )
+
     if not test_files:
         print("❌ No test files found in inputs/ directory")
         print("   Please add some PDF, TXT, or DOCX files to test with")
         return
-    
+
     print(f"📄 Found {len(test_files)} test files:")
     for f in test_files:
         print(f"   - {f.name}")
     print()
-    
+
     # Prepare multipart form data
     files = []
     for test_file in test_files:
         files.append(
-            ('files', (test_file.name, open(test_file, 'rb'), 'application/octet-stream'))
+            (
+                "files",
+                (test_file.name, open(test_file, "rb"), "application/octet-stream"),
+            )
         )
-    
-    data = {
-        'project_name': PROJECT_NAME
-    }
-    
+
+    data = {"project_name": PROJECT_NAME}
+
     try:
         print("📤 Uploading files...")
         response = requests.post(API_URL, data=data, files=files)
-        
+
         # Close file handles
         for _, (_, file_obj, _) in files:
             file_obj.close()
-        
+
         print(f"Status Code: {response.status_code}")
         print()
-        
+
         if response.status_code == 200:
             result = response.json()
             print("✅ SUCCESS! Files ingested successfully")
@@ -75,23 +78,23 @@ def test_ingest_endpoint():
             print(f"   Expires: {result['expires_at']}")
             print()
             print("📄 Files Processed:")
-            for file_info in result['files_processed']:
-                status = "✅" if file_info.get('file_id') else "❌"
+            for file_info in result["files_processed"]:
+                status = "✅" if file_info.get("file_id") else "❌"
                 print(f"   {status} {file_info['filename']}")
-                if file_info.get('char_count'):
+                if file_info.get("char_count"):
                     print(f"      - Characters: {file_info['char_count']:,}")
                     print(f"      - Words: {file_info['word_count']:,}")
-                if file_info.get('error'):
+                if file_info.get("error"):
                     print(f"      - Error: {file_info['error']}")
             print()
             print("💾 Save this for draft generation:")
             print(f"   SESSION_ID={result['session_id']}")
             print(f"   VECTOR_STORE_ID={result['vector_store_id']}")
-            
+
         else:
             print(f"❌ FAILED: {response.status_code}")
             print(response.text)
-    
+
     except requests.exceptions.ConnectionError:
         print("❌ ERROR: Could not connect to API")
         print("   Make sure the backend server is running:")
@@ -123,13 +126,13 @@ if __name__ == "__main__":
     print("Strategic Build Planner - Ingest API Test")
     print("=" * 60)
     print()
-    
+
     # Check if server is running
     if not test_health_check():
         exit(1)
-    
+
     # Run ingest test
     test_ingest_endpoint()
-    
+
     print()
     print("=" * 60)

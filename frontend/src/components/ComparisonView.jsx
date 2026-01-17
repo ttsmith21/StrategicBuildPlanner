@@ -1,9 +1,10 @@
 /**
  * ComparisonView Component
  * Display comparison results between quote assumptions and checklist requirements
+ * Includes interactive conflict resolution workflow
  */
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   CheckCircle,
   AlertTriangle,
@@ -13,20 +14,20 @@ import {
   ChevronDown,
   ChevronRight,
   Merge,
+  CheckCheck,
+  Loader2,
 } from 'lucide-react';
-
-// Severity badge colors
-const SEVERITY_COLORS = {
-  high: 'bg-red-100 text-red-800 border-red-200',
-  medium: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-  low: 'bg-blue-100 text-blue-800 border-blue-200',
-};
+import ConflictResolution from './ConflictResolution';
 
 export default function ComparisonView({
   comparison,
   mergePreview,
+  resolutions = {},
+  onResolve,
+  onApplyResolutions,
   onRequestMerge,
   isLoading = false,
+  isApplying = false,
   disabled = false,
 }) {
   const [expandedSections, setExpandedSections] = useState({
@@ -35,6 +36,19 @@ export default function ComparisonView({
     quoteOnly: false,
     checklistOnly: false,
   });
+
+  // Calculate resolution progress
+  const resolutionProgress = useMemo(() => {
+    if (!comparison?.conflicts) return { resolved: 0, total: 0, percentage: 0 };
+    const total = comparison.conflicts.length;
+    const resolved = Object.keys(resolutions).length;
+    return {
+      resolved,
+      total,
+      percentage: total > 0 ? Math.round((resolved / total) * 100) : 100,
+      allResolved: resolved >= total && total > 0,
+    };
+  }, [comparison?.conflicts, resolutions]);
 
   if (!comparison) {
     return null;
@@ -98,46 +112,12 @@ export default function ComparisonView({
     );
   };
 
-  // Render conflict item
-  const renderConflict = (conflict) => (
-    <div className="space-y-2">
-      <div className="flex items-start gap-2">
-        <span
-          className={`text-xs font-medium px-2 py-0.5 rounded border ${
-            SEVERITY_COLORS[conflict.severity] || SEVERITY_COLORS.medium
-          }`}
-        >
-          {conflict.severity?.toUpperCase()}
-        </span>
-        <span className="text-xs text-gray-500 uppercase tracking-wider">
-          {conflict.category}
-        </span>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div className="p-3 bg-red-50 rounded-lg border border-red-100">
-          <p className="text-xs font-medium text-red-600 mb-1">Quote Says:</p>
-          <p className="text-sm text-red-900">{conflict.quote_assumption}</p>
-        </div>
-        <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
-          <p className="text-xs font-medium text-blue-600 mb-1">Customer Requires:</p>
-          <p className="text-sm text-blue-900">{conflict.checklist_requirement}</p>
-        </div>
-      </div>
-
-      <div className="p-3 bg-gray-50 rounded-lg">
-        <p className="text-xs font-medium text-gray-600 mb-1">Conflict:</p>
-        <p className="text-sm text-gray-800">{conflict.conflict_description}</p>
-      </div>
-
-      {conflict.resolution_suggestion && (
-        <div className="p-3 bg-green-50 rounded-lg border border-green-100">
-          <p className="text-xs font-medium text-green-600 mb-1">Suggested Resolution:</p>
-          <p className="text-sm text-green-800">{conflict.resolution_suggestion}</p>
-        </div>
-      )}
-    </div>
-  );
+  // Handle individual conflict resolution
+  const handleResolve = (resolutionData) => {
+    if (onResolve) {
+      onResolve(resolutionData);
+    }
+  };
 
   // Render match item
   const renderMatch = (match) => (
@@ -288,17 +268,91 @@ export default function ComparisonView({
         )}
       </div>
 
+      {/* Resolution Progress Bar (only show if there are conflicts) */}
+      {comparison.conflicts?.length > 0 && onResolve && (
+        <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-sm font-medium text-gray-700">Resolution Progress</h4>
+            <span className="text-sm text-gray-500">
+              {resolutionProgress.resolved} of {resolutionProgress.total} resolved
+            </span>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-2.5">
+            <div
+              className={`h-2.5 rounded-full transition-all duration-300 ${
+                resolutionProgress.allResolved ? 'bg-green-500' : 'bg-primary-500'
+              }`}
+              style={{ width: `${resolutionProgress.percentage}%` }}
+            />
+          </div>
+
+          {/* Apply All Resolutions Button */}
+          {resolutionProgress.allResolved && (
+            <div className="mt-4 flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
+              <div className="flex items-center gap-2">
+                <CheckCheck className="h-5 w-5 text-green-600" />
+                <span className="text-sm font-medium text-green-700">
+                  All conflicts resolved!
+                </span>
+              </div>
+              <button
+                onClick={onApplyResolutions}
+                disabled={disabled || isApplying}
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-50"
+              >
+                {isApplying ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Applying...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="h-4 w-4" />
+                    Apply Resolutions
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Detailed Sections */}
       <div className="space-y-3">
-        {/* Conflicts - Always show first if any */}
-        {renderSection(
-          'conflicts',
-          'Conflicts',
-          <AlertCircle className="h-5 w-5 text-red-600" />,
-          comparison.conflicts,
-          'bg-red-50',
-          'border-red-200',
-          renderConflict
+        {/* Conflicts - Interactive Resolution */}
+        {comparison.conflicts?.length > 0 && (
+          <div className="border rounded-lg overflow-hidden border-red-200">
+            <button
+              onClick={() => toggleSection('conflicts')}
+              className="w-full flex items-center gap-3 px-4 py-3 bg-red-50 hover:opacity-90 transition-opacity"
+            >
+              <AlertCircle className="h-5 w-5 text-red-600" />
+              <span className="font-medium flex-1 text-left">Conflicts to Resolve</span>
+              <span className="text-sm font-semibold px-2 py-0.5 rounded-full bg-white/50">
+                {comparison.conflicts.length}
+              </span>
+              {expandedSections.conflicts ? (
+                <ChevronDown className="h-4 w-4" />
+              ) : (
+                <ChevronRight className="h-4 w-4" />
+              )}
+            </button>
+
+            {expandedSections.conflicts && (
+              <div className="bg-white p-4 space-y-4">
+                {comparison.conflicts.map((conflict, index) => (
+                  <ConflictResolution
+                    key={index}
+                    conflict={conflict}
+                    index={index}
+                    resolution={resolutions[index]}
+                    onResolve={handleResolve}
+                    disabled={disabled || isApplying}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         )}
 
         {/* Matches */}

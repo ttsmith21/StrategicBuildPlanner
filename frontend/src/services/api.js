@@ -169,10 +169,30 @@ export async function getActivePrompts() {
 /**
  * Publish checklist to Confluence
  * @param {object} checklist - The checklist object to publish
+ * @param {string} parentPageId - Optional parent page ID in Confluence
  */
-export async function publishChecklist(checklist) {
+export async function publishChecklist(checklist, parentPageId = null) {
   const response = await api.post('/api/checklist/publish', {
     checklist: checklist,
+    parent_page_id: parentPageId,
+  });
+
+  return response.data;
+}
+
+/**
+ * Update an existing Confluence template page with checklist data
+ * This preserves the template structure and injects checklist items into appropriate sections
+ * @param {object} checklist - The checklist data to publish
+ * @param {string} pageId - The ID of the existing page to update
+ * @param {string[]} quoteAssumptions - List of quote assumptions to add
+ * @returns {Promise<object>} - Published page info with page_url
+ */
+export async function updateTemplateWithChecklist(checklist, pageId, quoteAssumptions = []) {
+  const response = await api.post('/api/checklist/publish/template', {
+    checklist: checklist,
+    page_id: pageId,
+    quote_assumptions: quoteAssumptions,
   });
 
   return response.data;
@@ -320,6 +340,23 @@ export async function fullQuoteWorkflow(quoteFile, checklist, projectName, onPro
         onProgress(percent);
       }
     },
+  });
+
+  return response.data;
+}
+
+/**
+ * Apply conflict resolutions and update checklist
+ * @param {object} checklist - Original checklist
+ * @param {object} comparison - Comparison results with conflicts
+ * @param {object[]} resolutions - Array of resolution decisions
+ * @returns {object} - { updated_checklist, action_items, resolution_summary }
+ */
+export async function resolveConflicts(checklist, comparison, resolutions) {
+  const response = await api.post('/api/quote/resolve-conflicts', {
+    checklist: checklist,
+    comparison: comparison,
+    resolutions: resolutions,
   });
 
   return response.data;

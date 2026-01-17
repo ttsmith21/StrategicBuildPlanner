@@ -57,9 +57,7 @@ async def grade_plan(request: QAGradeRequest):
     - Critical gaps (blocking issues)
     """
     try:
-        logger.info(
-            f"Grading plan: {request.plan_json.get('project_name', 'Unknown')}"
-        )
+        logger.info(f"Grading plan: {request.plan_json.get('project_name', 'Unknown')}")
 
         # Build user prompt
         user_prompt = f"""Grade the following Strategic Build Plan according to the rubric.
@@ -86,10 +84,10 @@ Return your analysis as JSON matching the specified format.
             model=model,
             messages=[
                 {"role": "system", "content": QA_SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt}
+                {"role": "user", "content": user_prompt},
             ],
             response_format={"type": "json_object"},
-            max_tokens=4000
+            max_tokens=4000,
         )
 
         # Parse the response
@@ -102,18 +100,18 @@ Return your analysis as JSON matching the specified format.
             specificity=dim_scores.get("specificity", 10),
             actionability=dim_scores.get("actionability", 10),
             manufacturability=dim_scores.get("manufacturability", 10),
-            risk_coverage=dim_scores.get("risk_coverage", 10)
+            risk_coverage=dim_scores.get("risk_coverage", 10),
         )
 
         # Calculate overall score
         overall_score = grade_data.get("overall_score")
         if overall_score is None:
             overall_score = (
-                dimension_scores.completeness +
-                dimension_scores.specificity +
-                dimension_scores.actionability +
-                dimension_scores.manufacturability +
-                dimension_scores.risk_coverage
+                dimension_scores.completeness
+                + dimension_scores.specificity
+                + dimension_scores.actionability
+                + dimension_scores.manufacturability
+                + dimension_scores.risk_coverage
             )
 
         # Get grade label
@@ -133,17 +131,14 @@ Return your analysis as JSON matching the specified format.
             strengths=grade_data.get("strengths", []),
             improvements=grade_data.get("improvements", []),
             critical_gaps=grade_data.get("critical_gaps", []),
-            graded_at=datetime.utcnow()
+            graded_at=datetime.utcnow(),
         )
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"QA grading failed: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to grade plan: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to grade plan: {str(e)}")
 
 
 @router.get("/rubric")
@@ -165,8 +160,8 @@ async def get_grading_rubric():
                     "14-17": "Most sections complete, minor gaps in non-critical areas",
                     "10-13": "Several sections sparse or missing",
                     "6-9": "Major sections empty or placeholder text",
-                    "0-5": "Majority of plan is empty or generic"
-                }
+                    "0-5": "Majority of plan is empty or generic",
+                },
             },
             "specificity": {
                 "max_points": 20,
@@ -176,12 +171,12 @@ async def get_grading_rubric():
                     "14-17": "Mix of specific and general statements",
                     "10-13": "Mostly high-level, lacks operational detail",
                     "6-9": "Vague and generic throughout",
-                    "0-5": "No actionable details"
+                    "0-5": "No actionable details",
                 },
                 "examples": {
                     "bad": "Customer requires quality parts",
-                    "good": "Customer requires Cpk >= 1.67 per Q1 2025 agreement"
-                }
+                    "good": "Customer requires Cpk >= 1.67 per Q1 2025 agreement",
+                },
             },
             "actionability": {
                 "max_points": 20,
@@ -191,14 +186,14 @@ async def get_grading_rubric():
                     "14-17": "Most items have action plans, some ownership gaps",
                     "10-13": "High-level strategy but lacks execution details",
                     "6-9": "Few actionable next steps",
-                    "0-5": "No clear path forward"
+                    "0-5": "No clear path forward",
                 },
                 "checklist": [
                     "Asana tasks created for unknowns",
                     "Timeline with specific dates",
                     "Assigned owners or departments",
-                    "Dependencies identified"
-                ]
+                    "Dependencies identified",
+                ],
             },
             "manufacturability": {
                 "max_points": 20,
@@ -208,14 +203,14 @@ async def get_grading_rubric():
                     "14-17": "Basic manufacturing considerations addressed",
                     "10-13": "Some manufacturing gaps",
                     "6-9": "Unrealistic or incomplete manufacturing strategy",
-                    "0-5": "No evidence of manufacturing planning"
+                    "0-5": "No evidence of manufacturing planning",
                 },
                 "red_flags": [
                     "No tooling plan for custom parts",
                     "Ignoring lead times",
                     "Unrealistic timelines",
-                    "Missing capacity analysis"
-                ]
+                    "Missing capacity analysis",
+                ],
             },
             "risk_coverage": {
                 "max_points": 20,
@@ -225,22 +220,22 @@ async def get_grading_rubric():
                     "14-17": "Key risks identified with some mitigation plans",
                     "10-13": "Basic risk awareness, limited mitigation",
                     "6-9": "Few risks mentioned",
-                    "0-5": "No risk analysis"
+                    "0-5": "No risk analysis",
                 },
                 "common_risks": [
                     "Long-lead items",
                     "Single-source suppliers",
                     "New processes/untested methods",
                     "Tight timelines",
-                    "Customer-specific requirements"
-                ]
-            }
+                    "Customer-specific requirements",
+                ],
+            },
         },
         "grade_scale": {
             "90-100": "Excellent - Ready for execution",
             "80-89": "Good - Minor improvements needed",
             "70-79": "Acceptable - Several gaps to address",
             "60-69": "Needs Work - Significant improvements required",
-            "<60": "Incomplete - Major revision needed"
-        }
+            "<60": "Incomplete - Major revision needed",
+        },
     }

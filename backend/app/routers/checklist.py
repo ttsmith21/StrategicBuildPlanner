@@ -214,7 +214,15 @@ async def publish_checklist_to_confluence(request: PublishChecklistRequest):
             raise HTTPException(status_code=400, detail="No checklist provided")
 
         project_name = checklist.get("project_name", "Unknown Project")
+        resolutions_applied = checklist.get("resolutions_applied", False)
+        resolution_summary = checklist.get("resolution_summary", {})
         logger.info(f"Publishing checklist to Confluence: {project_name}")
+        logger.info(f"Resolutions applied: {resolutions_applied}, Summary: {resolution_summary}")
+
+        # Log first item from first category to verify data
+        if checklist.get("categories") and checklist["categories"][0].get("items"):
+            first_item = checklist["categories"][0]["items"][0]
+            logger.info(f"Sample item - Q: {first_item.get('question', 'N/A')[:50]}, A: {first_item.get('answer', 'N/A')[:50]}, Resolution: {first_item.get('resolution', 'None')}")
 
         # Initialize Confluence service
         confluence = ConfluenceService()
@@ -257,4 +265,91 @@ async def publish_checklist_to_confluence(request: PublishChecklistRequest):
         )
 
 
-# Force reload
+class UpdateTemplateRequest(BaseModel):
+    """Request to update an existing Confluence template with checklist data"""
+
+    checklist: dict
+    page_id: str  # The existing page to update
+    quote_assumptions: Optional[List[str]] = None  # List of quote assumptions to add
+
+
+@router.post("/publish/template", response_model=PublishResponse)
+async def update_template_with_checklist(request: UpdateTemplateRequest):
+    """
+    Update an existing Confluence template page with checklist data.
+
+    **Process:**
+    1. Get existing page content (preserving template structure)
+    2. Map checklist items to template sections
+    3. Inject checklist data into appropriate sections
+    4. Add quote assumptions to the assumptions section
+    5. Update the page
+
+    **Use this when:**
+    - User has selected an existing project page to update
+    - The page follows the standard template format
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    try:
+        checklist = request.checklist
+        if not checklist:
+            raise HTTPException(status_code=400, detail="No checklist provided")
+
+        if not request.page_id:
+            raise HTTPException(status_code=400, detail="No page_id provided")
+
+        project_name = checklist.get("project_name", "Unknown Project")
+        logger.info(f"Updating template page {request.page_id} with checklist: {project_name}")
+
+        # Extract quote assumptions from comparison data if available
+        quote_assumptions = request.quote_assumptions or []
+
+        # Log what we're working with
+        categories = checklist.get("categories", [])
+        items_with_answers = sum(
+            1 for cat in categories
+            for item in cat.get("items", [])
+            if item.get("answer") and item.get("status") == "requirement_found"
+        )
+        logger.info(f"Checklist has {len(categories)} categories, {items_with_answers} items with answers")
+        logger.info(f"Quote assumptions: {len(quote_assumptions)}")
+
+        # Initialize Confluence service
+        confluence = ConfluenceService()
+
+        # Fill the template with checklist data
+        result = await confluence.fill_template_with_checklist(
+            page_id=request.page_id,
+            checklist=checklist,
+            quote_assumptions=quote_assumptions,
+        )
+
+        logger.info(
+            f"Successfully updated template page: {result['title']} "
+            f"({result['id']}) - {result['url']}"
+        )
+
+        return PublishResponse(
+            page_id=result["id"],
+            page_url=result["url"],
+            page_title=result["title"],
+            published_at=datetime.utcnow(),
+        )
+
+    except ValueError as e:
+        logger.error(f"Template update error: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Template update failed: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update template: {str(e)}",
+        )
+
+
+# Force reload v2 - template endpoint added

@@ -111,10 +111,10 @@ Return the complete updated StrategicBuildPlan JSON.
             model=model,
             messages=[
                 {"role": "system", "content": MEETING_SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt}
+                {"role": "user", "content": user_prompt},
             ],
             response_format={"type": "json_object"},
-            max_tokens=16000
+            max_tokens=16000,
         )
 
         # Parse the response
@@ -123,7 +123,7 @@ Return the complete updated StrategicBuildPlan JSON.
         # Validate and enhance plan data
         try:
             validated_plan = StrategicBuildPlan(**updated_plan_data)
-            plan_json = validated_plan.model_dump(mode='json')
+            plan_json = validated_plan.model_dump(mode="json")
         except Exception as validation_error:
             logger.warning(f"Plan validation warning: {validation_error}")
             plan_json = updated_plan_data
@@ -143,8 +143,13 @@ Return the complete updated StrategicBuildPlan JSON.
             changes_summary.append(f"Added {new_notes} new meeting note(s)")
 
         # Check for section updates
-        for section in ["keys_to_project", "quality_plan", "purchasing",
-                        "build_strategy", "execution_strategy"]:
+        for section in [
+            "keys_to_project",
+            "quality_plan",
+            "purchasing",
+            "build_strategy",
+            "execution_strategy",
+        ]:
             old_section = request.plan_json.get(section, {})
             new_section = plan_json.get(section, {})
             if old_section != new_section:
@@ -167,7 +172,7 @@ Return the complete updated StrategicBuildPlan JSON.
             changes_summary=changes_summary,
             new_action_items=max(0, new_action_items),
             new_notes=max(0, new_notes),
-            applied_at=datetime.utcnow()
+            applied_at=datetime.utcnow(),
         )
 
     except HTTPException:
@@ -175,8 +180,7 @@ Return the complete updated StrategicBuildPlan JSON.
     except Exception as e:
         logger.error(f"Meeting processing failed: {str(e)}", exc_info=True)
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to process meeting transcript: {str(e)}"
+            status_code=500, detail=f"Failed to process meeting transcript: {str(e)}"
         )
 
 
@@ -186,7 +190,7 @@ async def upload_and_apply_transcript(
     transcript_file: UploadFile = File(..., description="Transcript file (.txt)"),
     meeting_type: str = Form(default="customer"),
     meeting_date: str = Form(default=None),
-    attendees: str = Form(default=None, description="Comma-separated attendee names")
+    attendees: str = Form(default=None, description="Comma-separated attendee names"),
 ):
     """
     Upload a transcript file and apply it to the plan
@@ -197,29 +201,25 @@ async def upload_and_apply_transcript(
     """
     try:
         # Validate file type
-        if not transcript_file.filename.endswith(('.txt', '.md')):
+        if not transcript_file.filename.endswith((".txt", ".md")):
             raise HTTPException(
-                status_code=400,
-                detail="Only .txt and .md files are supported"
+                status_code=400, detail="Only .txt and .md files are supported"
             )
 
         # Read transcript
         content = await transcript_file.read()
-        transcript = content.decode('utf-8')
+        transcript = content.decode("utf-8")
 
         # Parse plan JSON
         try:
             plan_data = json.loads(plan_json)
         except json.JSONDecodeError as e:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid plan_json: {str(e)}"
-            )
+            raise HTTPException(status_code=400, detail=f"Invalid plan_json: {str(e)}")
 
         # Parse attendees
         attendees_list = None
         if attendees:
-            attendees_list = [a.strip() for a in attendees.split(',')]
+            attendees_list = [a.strip() for a in attendees.split(",")]
 
         # Create request and delegate to main handler
         request = MeetingApplyRequest(
@@ -227,7 +227,7 @@ async def upload_and_apply_transcript(
             transcript=transcript,
             meeting_type=meeting_type,
             meeting_date=meeting_date,
-            attendees=attendees_list
+            attendees=attendees_list,
         )
 
         return await apply_meeting_transcript(request)
@@ -237,6 +237,5 @@ async def upload_and_apply_transcript(
     except Exception as e:
         logger.error(f"Transcript upload failed: {str(e)}", exc_info=True)
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to process transcript file: {str(e)}"
+            status_code=500, detail=f"Failed to process transcript file: {str(e)}"
         )

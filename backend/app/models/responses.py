@@ -9,6 +9,7 @@ from datetime import datetime
 
 class FileUploadResponse(BaseModel):
     """Response for individual file upload"""
+
     filename: str
     file_id: str
     size_bytes: int
@@ -19,6 +20,7 @@ class FileUploadResponse(BaseModel):
 
 class IngestResponse(BaseModel):
     """Response for document ingestion"""
+
     session_id: str = Field(..., description="Unique session identifier")
     vector_store_id: str = Field(..., description="OpenAI Vector Store ID")
     project_name: str
@@ -32,24 +34,29 @@ class IngestResponse(BaseModel):
 
 class DraftRequest(BaseModel):
     """Request to draft a Strategic Build Plan"""
+
     session_id: str = Field(..., description="Session ID from ingestion")
     vector_store_id: str = Field(..., description="Vector Store ID")
     project_name: str
     customer: str
     family_of_parts: str
-    additional_context: Optional[str] = Field(None, description="Any additional instructions or context")
+    additional_context: Optional[str] = Field(
+        None, description="Any additional instructions or context"
+    )
 
 
 class DraftResponse(BaseModel):
     """Response with drafted plan"""
+
     plan_json: Dict[str, Any] = Field(..., description="Strategic Build Plan as JSON")
     plan_markdown: str = Field(..., description="Plan rendered as Markdown")
     session_id: str
     generated_at: datetime = Field(default_factory=datetime.utcnow)
-    
-    
+
+
 class PublishRequest(BaseModel):
     """Request to publish plan to Confluence"""
+
     plan_json: Dict[str, Any]
     customer: str
     family_of_parts: str
@@ -59,6 +66,7 @@ class PublishRequest(BaseModel):
 
 class PublishResponse(BaseModel):
     """Response after publishing to Confluence"""
+
     page_id: str
     page_url: str
     page_title: str
@@ -67,53 +75,84 @@ class PublishResponse(BaseModel):
 
 class MeetingApplyRequest(BaseModel):
     """Request to apply meeting transcript to existing plan"""
-    plan_json: Dict[str, Any] = Field(..., description="Current Strategic Build Plan JSON")
+
+    plan_json: Dict[str, Any] = Field(
+        ..., description="Current Strategic Build Plan JSON"
+    )
     transcript: str = Field(..., description="Meeting transcript text")
     meeting_type: str = Field(
         default="customer",
-        description="Type: 'customer', 'internal', 'kickoff', 'review'"
+        description="Type: 'customer', 'internal', 'kickoff', 'review'",
     )
-    meeting_date: Optional[str] = Field(None, description="Meeting date (ISO format or natural)")
+    meeting_date: Optional[str] = Field(
+        None, description="Meeting date (ISO format or natural)"
+    )
     attendees: Optional[List[str]] = Field(None, description="List of attendee names")
 
 
 class MeetingApplyResponse(BaseModel):
     """Response after applying meeting transcript"""
-    plan_json: Dict[str, Any] = Field(..., description="Updated Strategic Build Plan JSON")
+
+    plan_json: Dict[str, Any] = Field(
+        ..., description="Updated Strategic Build Plan JSON"
+    )
     plan_markdown: str = Field(..., description="Updated plan as Markdown")
-    changes_summary: List[str] = Field(default_factory=list, description="Summary of changes made")
-    new_action_items: int = Field(default=0, description="Number of new Asana tasks created")
+    changes_summary: List[str] = Field(
+        default_factory=list, description="Summary of changes made"
+    )
+    new_action_items: int = Field(
+        default=0, description="Number of new Asana tasks created"
+    )
     new_notes: int = Field(default=0, description="Number of notes added")
     applied_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class DimensionScores(BaseModel):
     """Individual dimension scores for QA grading"""
+
     completeness: int = Field(..., ge=0, le=20, description="Completeness score (0-20)")
     specificity: int = Field(..., ge=0, le=20, description="Specificity score (0-20)")
-    actionability: int = Field(..., ge=0, le=20, description="Actionability score (0-20)")
-    manufacturability: int = Field(..., ge=0, le=20, description="Manufacturability score (0-20)")
-    risk_coverage: int = Field(..., ge=0, le=20, description="Risk coverage score (0-20)")
+    actionability: int = Field(
+        ..., ge=0, le=20, description="Actionability score (0-20)"
+    )
+    manufacturability: int = Field(
+        ..., ge=0, le=20, description="Manufacturability score (0-20)"
+    )
+    risk_coverage: int = Field(
+        ..., ge=0, le=20, description="Risk coverage score (0-20)"
+    )
 
 
 class QAGradeRequest(BaseModel):
     """Request to grade a Strategic Build Plan"""
-    plan_json: Dict[str, Any] = Field(..., description="Strategic Build Plan JSON to grade")
+
+    plan_json: Dict[str, Any] = Field(
+        ..., description="Strategic Build Plan JSON to grade"
+    )
 
 
 class QAGradeResponse(BaseModel):
     """QA grading response with scores and feedback"""
+
     overall_score: int = Field(..., ge=0, le=100, description="Overall score (0-100)")
     dimension_scores: DimensionScores = Field(..., description="Scores by dimension")
-    grade: str = Field(..., description="Grade label (Excellent, Good, Acceptable, Needs Work, Incomplete)")
+    grade: str = Field(
+        ...,
+        description="Grade label (Excellent, Good, Acceptable, Needs Work, Incomplete)",
+    )
     strengths: List[str] = Field(default_factory=list, description="Plan strengths")
-    improvements: List[str] = Field(default_factory=list, description="Suggested improvements")
-    critical_gaps: List[str] = Field(default_factory=list, description="Critical blocking issues")
+    improvements: List[str] = Field(
+        default_factory=list, description="Suggested improvements"
+    )
+    critical_gaps: List[str] = Field(
+        default_factory=list, description="Critical blocking issues"
+    )
     graded_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class ErrorResponse(BaseModel):
     """Standard error response"""
+
     error: str
     detail: Optional[str] = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)

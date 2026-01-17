@@ -53,23 +53,30 @@ class OpenAIService:
 
             # Wait for files to be indexed (if any files provided)
             if file_ids:
-                logger.info(f"Waiting for {len(file_ids)} files to be indexed...")
-                max_wait = 60  # Max wait time in seconds
+                total_files = len(file_ids)
+                logger.info(f"Waiting for {total_files} files to be indexed...")
+                max_wait = 120  # Max wait time in seconds
                 waited = 0
                 poll_interval = 2
+
+                # Small initial delay to let OpenAI start processing
+                time.sleep(1)
+                waited += 1
 
                 while waited < max_wait:
                     vs = self.client.beta.vector_stores.retrieve(vector_store.id)
                     in_progress = vs.file_counts.in_progress
                     completed = vs.file_counts.completed
                     failed = vs.file_counts.failed
+                    total_processed = completed + failed
 
                     logger.debug(
                         f"Vector store indexing: {completed} completed, "
                         f"{in_progress} in progress, {failed} failed"
                     )
 
-                    if in_progress == 0:
+                    # Check if all files have been processed (not just in_progress == 0)
+                    if total_processed >= total_files and in_progress == 0:
                         logger.info(
                             f"Vector store indexing complete: {completed} files indexed, "
                             f"{failed} failed"
