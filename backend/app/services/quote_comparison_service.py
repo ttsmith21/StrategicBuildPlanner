@@ -153,17 +153,25 @@ specific standards (AWS, ASME, ASTM, etc.), include those."""
         # Use AI to find matches and conflicts
         prompt = f"""Compare these vendor quote assumptions against customer requirements.
 
+CRITICAL: Only compare items WITHIN THE SAME CATEGORY. Do NOT match items across different categories.
+- Material Standards items should only be compared to Material Standards items
+- Fabrication Process items should only be compared to Fabrication Process items
+- Finishing Requirements should only be compared to Finishing Requirements
+- And so on for each category
+
+Each item includes a "category" or "category_name" field - use this to ensure same-category matching.
+
 CUSTOMER REQUIREMENTS (from specification documents):
 {json.dumps(checklist_items, indent=2)}
 
 VENDOR QUOTE ASSUMPTIONS:
 {json.dumps(quote_items, indent=2)}
 
-Analyze each pair and identify:
-1. MATCHES - Quote assumption aligns with customer requirement
-2. CONFLICTS - Quote assumption contradicts customer requirement (CRITICAL!)
-3. QUOTE_ONLY - Assumption in quote not covered by customer requirements
-4. CHECKLIST_ONLY - Customer requirement not addressed in quote
+Analyze each pair WITHIN THE SAME CATEGORY and identify:
+1. MATCHES - Quote assumption aligns with customer requirement (same category only)
+2. CONFLICTS - Quote assumption contradicts customer requirement (same category only - CRITICAL!)
+3. QUOTE_ONLY - Assumption in quote not covered by customer requirements in that category
+4. CHECKLIST_ONLY - Customer requirement not addressed in quote for that category
 
 For conflicts, be specific about what's different and why it matters.
 
@@ -352,3 +360,200 @@ Focus especially on:
         )
 
         return merged
+
+    async def apply_resolutions(
+        self,
+        checklist: Dict[str, Any],
+        comparison: Dict[str, Any],
+        resolutions: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """
+        Apply conflict resolutions to the checklist
+
+        Args:
+            checklist: Original checklist
+            comparison: Comparison results with conflicts
+            resolutions: List of resolution decisions from user
+
+        Returns:
+            Dict containing:
+                - updated_checklist: Checklist with resolutions applied
+                - action_items: List of action items to create
+                - summary: Resolution statistics
+        """
+        logger.info(f"Applying {len(resolutions)} resolutions to checklist")
+
+        # Deep copy checklist
+        updated_checklist = {
+            "project_name": checklist.get("project_name"),
+            "customer": checklist.get("customer"),
+            "created_at": checklist.get("created_at"),
+            "updated_at": datetime.utcnow().isoformat(),
+            "categories": [],
+            "statistics": checklist.get("statistics", {}),
+            "resolutions_applied": True,
+        }
+
+        # Get conflicts from comparison
+        conflicts = comparison.get("conflicts", [])
+
+        # Build resolution lookup by conflict index
+        resolution_lookup = {r["conflict_index"]: r for r in resolutions}
+
+        # Track action items to create
+        action_items = []
+
+        # Track summary statistics
+        summary = {
+            "total_resolved": 0,
+            "kept_customer_spec": 0,
+            "accepted_quote": 0,
+            "used_ai_suggestion": 0,
+            "action_items_created": 0,
+            "custom_resolutions": 0,
+        }
+
+        # Process each category
+        for category in checklist.get("categories", []):
+            updated_category = {
+                "id": category["id"],
+                "name": category["name"],
+                "order": category.get("order", 99),
+                "items": [],
+            }
+
+            # Process each item
+            for item in category.get("items", []):
+                updated_item = {**item}
+
+                # Check if this item has a conflict that was resolved
+                for idx, conflict in enumerate(conflicts):
+                    # Match by answer text (checklist requirement)
+                    # Normalize both strings for comparison (case-insensitive, trim whitespace)
+                    item_answer = (item.get("answer") or "").strip().lower()
+                    conflict_req = (conflict.get("checklist_requirement") or "").strip().lower()
+
+                    # Also try matching by question if answer doesn't match
+                    item_question = (item.get("question") or "").strip().lower()
+                    conflict_cat = (conflict.get("category") or "").strip().lower()
+
+                    # Match if answers match OR if category matches and it's the same requirement
+                    is_match = (
+                        (item_answer and conflict_req and item_answer == conflict_req) or
+                        (item_answer and conflict_req and conflict_req in item_answer) or
+                        (item_answer and conflict_req and item_answer in conflict_req)
+                    )
+
+                    if is_match:
+                        resolution = resolution_lookup.get(idx)
+                        if resolution:
+                            logger.info(f"Applying resolution to item: {item.get('question', 'Unknown')[:50]}...")
+                            updated_item = self._apply_resolution_to_item(
+                                updated_item, conflict, resolution, summary, action_items, idx
+                            )
+                            break
+                        else:
+                            logger.debug(f"No resolution found for conflict index {idx}")
+
+                updated_category["items"].append(updated_item)
+
+            updated_checklist["categories"].append(updated_category)
+
+        # Update statistics in checklist
+        updated_checklist["resolution_summary"] = summary
+
+        logger.info(
+            f"Resolutions applied: {summary['total_resolved']} resolved, "
+            f"{summary['action_items_created']} action items created"
+        )
+
+        return {
+            "updated_checklist": updated_checklist,
+            "action_items": action_items,
+            "summary": summary,
+        }
+
+    def _apply_resolution_to_item(
+        self,
+        item: Dict[str, Any],
+        conflict: Dict[str, Any],
+        resolution: Dict[str, Any],
+        summary: Dict[str, int],
+        action_items: List[Dict[str, Any]],
+        conflict_index: int,
+    ) -> Dict[str, Any]:
+        """Apply a single resolution to a checklist item"""
+
+        resolution_type = resolution.get("resolution_type")
+        summary["total_resolved"] += 1
+
+        # Mark item as resolved
+        item["resolution"] = {
+            "type": resolution_type,
+            "conflict": conflict,
+            "resolved_at": datetime.utcnow().isoformat(),
+        }
+
+        if resolution_type == "customer_spec":
+            # Keep the customer requirement as-is
+            summary["kept_customer_spec"] += 1
+            item["resolution"]["note"] = "Kept customer specification"
+            # Answer stays the same
+
+        elif resolution_type == "quote":
+            # Accept the quote assumption
+            summary["accepted_quote"] += 1
+            item["answer"] = conflict.get("quote_assumption", item["answer"])
+            item["source"] = f"Vendor quote (accepted)"
+            item["resolution"]["note"] = "Accepted vendor quote assumption"
+
+        elif resolution_type == "ai_suggestion":
+            # Use AI-generated resolution
+            summary["used_ai_suggestion"] += 1
+            item["answer"] = conflict.get("resolution_suggestion", item["answer"])
+            item["source"] = f"AI-suggested resolution"
+            item["resolution"]["note"] = "Applied AI-suggested resolution"
+
+        elif resolution_type == "action_item":
+            # Create action item for follow-up
+            summary["action_items_created"] += 1
+            action_details = resolution.get("action_item", {})
+
+            action_item = {
+                "conflict_index": conflict_index,
+                "title": action_details.get(
+                    "title", f"Resolve: {conflict.get('category', 'Unknown')}"
+                ),
+                "description": action_details.get(
+                    "description",
+                    f"Conflict: {conflict.get('conflict_description', 'See details')}\n\n"
+                    f"Customer requires: {conflict.get('checklist_requirement', 'N/A')}\n"
+                    f"Quote states: {conflict.get('quote_assumption', 'N/A')}\n\n"
+                    f"Suggested resolution: {conflict.get('resolution_suggestion', 'N/A')}",
+                ),
+                "assignee_hint": action_details.get("assignee_hint"),
+                "due_date_hint": action_details.get("due_date_hint"),
+                "priority": action_details.get("priority", "high"),
+                "category": conflict.get("category"),
+            }
+            action_items.append(action_item)
+
+            item["resolution"]["note"] = "Action item created for vendor discussion"
+            item["resolution"]["action_item"] = action_item
+            item["status"] = "action_item_created"  # Changed from pending_resolution to indicate follow-up task exists
+
+        elif resolution_type == "custom":
+            # Use custom resolution text
+            summary["custom_resolutions"] += 1
+            custom_text = resolution.get("custom_text", "")
+            if custom_text:
+                item["answer"] = custom_text
+                item["source"] = "Custom resolution"
+            item["resolution"]["note"] = "Custom resolution applied"
+            item["resolution"]["custom_text"] = custom_text
+
+        # Add notes if provided
+        if resolution.get("notes"):
+            item["resolution"]["user_notes"] = resolution["notes"]
+
+        return item

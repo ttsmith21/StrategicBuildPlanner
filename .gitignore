@@ -50,3 +50,7 @@ inputs/*.txt
 outputs/
 *.pdf
 *.log
+
+# Test result files
+*_result.json
+nul

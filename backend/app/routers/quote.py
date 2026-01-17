@@ -303,3 +303,88 @@ async def full_quote_comparison_workflow(
     except Exception as e:
         logger.error(f"Full workflow failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Workflow failed: {str(e)}")
+
+
+# ============================================================================
+# Conflict Resolution Endpoints
+# ============================================================================
+
+
+class ResolutionItem(BaseModel):
+    """Single conflict resolution"""
+
+    conflict_index: int
+    resolution_type: str  # customer_spec, quote, ai_suggestion, action_item, custom
+    custom_text: Optional[str] = None
+    action_item: Optional[dict] = None
+    notes: Optional[str] = None
+
+
+class ResolveConflictsRequest(BaseModel):
+    """Request to resolve conflicts and update checklist"""
+
+    checklist: dict
+    comparison: dict
+    resolutions: list  # List of ResolutionItem
+
+
+@router.post("/resolve-conflicts")
+async def resolve_conflicts(request: ResolveConflictsRequest):
+    """
+    Apply conflict resolutions and update checklist
+
+    **Resolution Types:**
+    - `customer_spec`: Keep the customer requirement as-is
+    - `quote`: Accept the vendor's quote assumption
+    - `ai_suggestion`: Use the AI-generated resolution suggestion
+    - `action_item`: Create an action item for vendor discussion
+    - `custom`: Enter custom resolution text
+
+    **Process:**
+    1. Apply each resolution to the corresponding checklist item
+    2. Create action items for those marked as action_item
+    3. Return updated checklist ready for publishing
+
+    **Returns:**
+    - `updated_checklist`: Checklist with resolutions applied
+    - `action_items`: List of action items to create in Asana
+    - `resolution_summary`: Statistics on resolutions applied
+    """
+    try:
+        # Convert resolutions to list of dicts
+        resolutions_data = []
+        for res in request.resolutions:
+            if isinstance(res, dict):
+                resolutions_data.append(res)
+            else:
+                resolutions_data.append(res.dict() if hasattr(res, 'dict') else res)
+
+        result = await quote_service.apply_resolutions(
+            checklist=request.checklist,
+            comparison=request.comparison,
+            resolutions=resolutions_data,
+        )
+
+        # If there are action items, we could create Asana tasks here
+        # For now, return them for frontend to handle or trigger separately
+        action_items = result.get("action_items", [])
+        if action_items:
+            logger.info(f"Created {len(action_items)} action items for resolution")
+
+            # Optionally auto-create Asana tasks
+            # This could be done here or in a separate endpoint
+            # asana_service = AsanaService()
+            # for item in action_items:
+            #     await asana_service.create_task(...)
+
+        return {
+            "updated_checklist": result["updated_checklist"],
+            "action_items": action_items,
+            "resolution_summary": result["summary"],
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to apply resolutions: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Resolution failed: {str(e)}"
+        )

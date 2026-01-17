@@ -49,11 +49,13 @@ class ChecklistService:
         for category in self.prompts_data.get("categories", []):
             for prompt in category.get("prompts", []):
                 if prompt.get("active", True):
-                    prompts.append({
-                        "category_id": category["id"],
-                        "category_name": category["name"],
-                        **prompt
-                    })
+                    prompts.append(
+                        {
+                            "category_id": category["id"],
+                            "category_name": category["name"],
+                            **prompt,
+                        }
+                    )
         return prompts
 
     async def _run_single_prompt(
@@ -61,7 +63,7 @@ class ChecklistService:
         prompt_data: Dict,
         vector_store_id: str,
         semaphore: asyncio.Semaphore,
-        assistant_id: str
+        assistant_id: str,
     ) -> Dict:
         """
         Run a single prompt against the vector store using Assistants API
@@ -82,16 +84,12 @@ Search the uploaded documents and provide the answer. If you find relevant requi
 
                 # Add the message
                 self.client.beta.threads.messages.create(
-                    thread_id=thread.id,
-                    role="user",
-                    content=user_prompt
+                    thread_id=thread.id, role="user", content=user_prompt
                 )
 
                 # Run the assistant
                 run = self.client.beta.threads.runs.create_and_poll(
-                    thread_id=thread.id,
-                    assistant_id=assistant_id,
-                    timeout=60
+                    thread_id=thread.id, assistant_id=assistant_id, timeout=60
                 )
 
                 if run.status != "completed":
@@ -122,7 +120,7 @@ Search the uploaded documents and provide the answer. If you find relevant requi
                     "answer": answer,
                     "source": source,
                     "status": status,
-                    "error": None
+                    "error": None,
                 }
 
             except Exception as e:
@@ -134,19 +132,20 @@ Search the uploaded documents and provide the answer. If you find relevant requi
                     "answer": None,
                     "source": None,
                     "status": "error",
-                    "error": str(e)
+                    "error": str(e),
                 }
 
     def _extract_source(self, answer: str) -> Optional[str]:
         """Try to extract source citation from answer"""
         # Look for common citation patterns
         import re
+
         patterns = [
-            r'Section\s+[\d.]+',
-            r'Page\s+\d+',
-            r'Document:\s*[^,\n]+',
-            r'Spec-\d+',
-            r'per\s+[^,\n]+specification',
+            r"Section\s+[\d.]+",
+            r"Page\s+\d+",
+            r"Document:\s*[^,\n]+",
+            r"Spec-\d+",
+            r"per\s+[^,\n]+specification",
         ]
 
         for pattern in patterns:
@@ -161,7 +160,7 @@ Search the uploaded documents and provide the answer. If you find relevant requi
         vector_store_id: str,
         project_name: str,
         customer: Optional[str] = None,
-        category_ids: Optional[List[str]] = None
+        category_ids: Optional[List[str]] = None,
     ) -> Dict:
         """
         Generate a complete pre-meeting checklist by running all prompts in parallel
@@ -181,9 +180,13 @@ Search the uploaded documents and provide the answer. If you find relevant requi
         # Get active prompts, optionally filtered by category
         active_prompts = self.get_active_prompts()
         if category_ids:
-            active_prompts = [p for p in active_prompts if p["category_id"] in category_ids]
+            active_prompts = [
+                p for p in active_prompts if p["category_id"] in category_ids
+            ]
 
-        logger.info(f"Running {len(active_prompts)} prompts with max {self.max_concurrent} concurrent")
+        logger.info(
+            f"Running {len(active_prompts)} prompts with max {self.max_concurrent} concurrent"
+        )
 
         # Create an assistant with file_search tool for this checklist run
         assistant = self.client.beta.assistants.create(
@@ -198,11 +201,7 @@ IMPORTANT RULES:
 4. Include section numbers, page references, or document names when available""",
             model=self.model,
             tools=[{"type": "file_search"}],
-            tool_resources={
-                "file_search": {
-                    "vector_store_ids": [vector_store_id]
-                }
-            }
+            tool_resources={"file_search": {"vector_store_ids": [vector_store_id]}},
         )
         logger.info(f"Created assistant: {assistant.id}")
 
@@ -212,7 +211,9 @@ IMPORTANT RULES:
 
             # Run all prompts in parallel
             tasks = [
-                self._run_single_prompt(prompt, vector_store_id, semaphore, assistant.id)
+                self._run_single_prompt(
+                    prompt, vector_store_id, semaphore, assistant.id
+                )
                 for prompt in active_prompts
             ]
 
@@ -239,7 +240,7 @@ IMPORTANT RULES:
             "created_at": datetime.utcnow().isoformat(),
             "generation_time_seconds": elapsed,
             "categories": categories_result,
-            "statistics": stats
+            "statistics": stats,
         }
 
     def _organize_by_category(self, results: List[Dict]) -> List[Dict]:
@@ -251,7 +252,7 @@ IMPORTANT RULES:
                 "id": cat["id"],
                 "name": cat["name"],
                 "order": cat.get("order", 99),
-                "items": []
+                "items": [],
             }
 
         # Assign results to categories
@@ -280,7 +281,7 @@ IMPORTANT RULES:
             "requirements_found": found,
             "no_requirements": not_found,
             "errors": errors,
-            "coverage_percentage": round((found / total) * 100, 1) if total > 0 else 0
+            "coverage_percentage": round((found / total) * 100, 1) if total > 0 else 0,
         }
 
     def save_prompts(self, prompts_data: Dict) -> bool:

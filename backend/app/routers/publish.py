@@ -75,9 +75,7 @@ async def publish_to_confluence(request: PublishRequest):
 
         # Create the page
         result = await confluence.create_page(
-            title=page_title,
-            content=plan_content,
-            parent_id=parent_id
+            title=page_title, content=plan_content, parent_id=parent_id
         )
 
         logger.info(
@@ -89,23 +87,19 @@ async def publish_to_confluence(request: PublishRequest):
             page_id=result["id"],
             page_url=result["url"],
             page_title=result["title"],
-            published_at=datetime.utcnow()
+            published_at=datetime.utcnow(),
         )
 
     except ValueError as e:
         # Confluence not configured
         logger.error(f"Confluence configuration error: {str(e)}")
-        raise HTTPException(
-            status_code=503,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=503, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Confluence publish failed: {str(e)}", exc_info=True)
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to publish to Confluence: {str(e)}"
+            status_code=500, detail=f"Failed to publish to Confluence: {str(e)}"
         )
 
 
@@ -137,9 +131,7 @@ async def update_confluence_page(page_id: str, request: PublishRequest):
 
         # Update the page
         result = await confluence.update_page(
-            page_id=page_id,
-            title=page_title,
-            content=plan_content
+            page_id=page_id, title=page_title, content=plan_content
         )
 
         logger.info(
@@ -151,30 +143,23 @@ async def update_confluence_page(page_id: str, request: PublishRequest):
             page_id=result["id"],
             page_url=result["url"],
             page_title=result["title"],
-            published_at=datetime.utcnow()
+            published_at=datetime.utcnow(),
         )
 
     except ValueError as e:
         logger.error(f"Confluence configuration error: {str(e)}")
-        raise HTTPException(
-            status_code=503,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=503, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Confluence update failed: {str(e)}", exc_info=True)
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to update Confluence page: {str(e)}"
+            status_code=500, detail=f"Failed to update Confluence page: {str(e)}"
         )
 
 
 @router.get("/publish/search")
-async def search_confluence_pages(
-    query: str,
-    limit: int = 10
-):
+async def search_confluence_pages(query: str, limit: int = 10):
     """
     Search Confluence pages using CQL
 
@@ -190,20 +175,13 @@ async def search_confluence_pages(
         confluence = ConfluenceService()
         pages = await confluence.search_pages(query, limit=limit)
 
-        return {
-            "query": query,
-            "count": len(pages),
-            "pages": pages
-        }
+        return {"query": query, "count": len(pages), "pages": pages}
 
     except ValueError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
         logger.error(f"Confluence search failed: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Search failed: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
 
 @router.post("/publish/checklist", response_model=PublishResponse)
@@ -240,7 +218,7 @@ async def publish_checklist_to_confluence(request: dict):
         result = await confluence.create_page(
             title=page_title,
             content=checklist_content,
-            parent_id=request.get("parent_page_id")
+            parent_id=request.get("parent_page_id"),
         )
 
         logger.info(
@@ -252,20 +230,17 @@ async def publish_checklist_to_confluence(request: dict):
             page_id=result["id"],
             page_url=result["url"],
             page_title=result["title"],
-            published_at=datetime.utcnow()
+            published_at=datetime.utcnow(),
         )
 
     except ValueError as e:
         logger.error(f"Confluence configuration error: {str(e)}")
-        raise HTTPException(
-            status_code=503,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=503, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Confluence checklist publish failed: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to publish checklist to Confluence: {str(e)}"
+            detail=f"Failed to publish checklist to Confluence: {str(e)}",
         )

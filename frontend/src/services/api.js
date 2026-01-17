@@ -169,10 +169,217 @@ export async function getActivePrompts() {
 /**
  * Publish checklist to Confluence
  * @param {object} checklist - The checklist object to publish
+ * @param {string} parentPageId - Optional parent page ID in Confluence
  */
-export async function publishChecklist(checklist) {
+export async function publishChecklist(checklist, parentPageId = null) {
   const response = await api.post('/api/checklist/publish', {
     checklist: checklist,
+    parent_page_id: parentPageId,
+  });
+
+  return response.data;
+}
+
+/**
+ * Update an existing Confluence template page with checklist data
+ * This preserves the template structure and injects checklist items into appropriate sections
+ * @param {object} checklist - The checklist data to publish
+ * @param {string} pageId - The ID of the existing page to update
+ * @param {string[]} quoteAssumptions - List of quote assumptions to add
+ * @param {object[]} lessons - List of accepted lessons learned to inject
+ * @returns {Promise<object>} - Published page info with page_url
+ */
+export async function updateTemplateWithChecklist(checklist, pageId, quoteAssumptions = [], lessons = []) {
+  const response = await api.post('/api/checklist/publish/template', {
+    checklist: checklist,
+    page_id: pageId,
+    quote_assumptions: quoteAssumptions,
+    lessons: lessons,
+  });
+
+  return response.data;
+}
+
+// ============================================================================
+// Confluence Navigation API
+// ============================================================================
+
+/**
+ * Search Confluence pages by job number (e.g., F12345)
+ * @param {string} query - Job number or search term
+ * @param {string} space - Confluence space key (default: KB)
+ */
+export async function searchConfluencePages(query, space = 'KB') {
+  const response = await api.get('/api/confluence/search', {
+    params: { q: query, space },
+  });
+  return response.data;
+}
+
+/**
+ * Get Confluence page hierarchy for browsing
+ * @param {string} parentId - Parent page ID (null for root)
+ * @param {string} space - Confluence space key
+ */
+export async function getConfluenceHierarchy(parentId = null, space = 'KB') {
+  const response = await api.get('/api/confluence/hierarchy', {
+    params: { parent_id: parentId, space },
+  });
+  return response.data;
+}
+
+/**
+ * Get a Confluence page with its ancestors
+ * @param {string} pageId - Page ID
+ */
+export async function getConfluencePage(pageId) {
+  const response = await api.get(`/api/confluence/page/${pageId}`);
+  return response.data;
+}
+
+/**
+ * Get Confluence page content as plain text
+ * @param {string} pageId - Page ID
+ */
+export async function getConfluencePageText(pageId) {
+  const response = await api.get(`/api/confluence/page/${pageId}/text`);
+  return response.data;
+}
+
+/**
+ * Get full context for a Confluence page (page + ancestors + children)
+ * @param {string} pageId - Page ID
+ */
+export async function getConfluencePageContext(pageId) {
+  const response = await api.get(`/api/confluence/page/${pageId}/context`);
+  return response.data;
+}
+
+// ============================================================================
+// Quote Comparison API
+// ============================================================================
+
+/**
+ * Extract assumptions from a vendor quote PDF
+ * @param {File} file - Quote PDF file
+ * @param {string} projectName - Project name for context
+ * @param {function} onProgress - Upload progress callback
+ */
+export async function extractQuoteAssumptions(file, projectName, onProgress) {
+  const formData = new FormData();
+  formData.append('file', file);
+  if (projectName) {
+    formData.append('project_name', projectName);
+  }
+
+  const response = await api.post('/api/quote/extract', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+    onUploadProgress: (progressEvent) => {
+      if (onProgress) {
+        const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        onProgress(percent);
+      }
+    },
+  });
+
+  return response.data;
+}
+
+/**
+ * Compare quote assumptions against checklist requirements
+ * @param {object} quoteAssumptions - Output from extractQuoteAssumptions
+ * @param {object} checklist - Checklist from generateChecklist
+ */
+export async function compareQuoteWithChecklist(quoteAssumptions, checklist) {
+  const response = await api.post('/api/quote/compare', {
+    quote_assumptions: quoteAssumptions,
+    checklist: checklist,
+  });
+
+  return response.data;
+}
+
+/**
+ * Generate merge preview with conflict highlights
+ * @param {object} checklist - Original checklist
+ * @param {object} quoteAssumptions - Extracted quote assumptions
+ * @param {object} comparison - Comparison results
+ */
+export async function generateMergePreview(checklist, quoteAssumptions, comparison) {
+  const response = await api.post('/api/quote/merge-preview', {
+    checklist: checklist,
+    quote_assumptions: quoteAssumptions,
+    comparison: comparison,
+  });
+
+  return response.data;
+}
+
+/**
+ * Run full quote comparison workflow in one call
+ * @param {File} quoteFile - Quote PDF file
+ * @param {object} checklist - Checklist to compare against
+ * @param {string} projectName - Project name
+ * @param {function} onProgress - Upload progress callback
+ */
+export async function fullQuoteWorkflow(quoteFile, checklist, projectName, onProgress) {
+  const formData = new FormData();
+  formData.append('quote_file', quoteFile);
+  formData.append('checklist', JSON.stringify(checklist));
+  if (projectName) {
+    formData.append('project_name', projectName);
+  }
+
+  const response = await api.post('/api/quote/full-workflow', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+    onUploadProgress: (progressEvent) => {
+      if (onProgress) {
+        const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        onProgress(percent);
+      }
+    },
+  });
+
+  return response.data;
+}
+
+/**
+ * Apply conflict resolutions and update checklist
+ * @param {object} checklist - Original checklist
+ * @param {object} comparison - Comparison results with conflicts
+ * @param {object[]} resolutions - Array of resolution decisions
+ * @returns {object} - { updated_checklist, action_items, resolution_summary }
+ */
+export async function resolveConflicts(checklist, comparison, resolutions) {
+  const response = await api.post('/api/quote/resolve-conflicts', {
+    checklist: checklist,
+    comparison: comparison,
+    resolutions: resolutions,
+  });
+
+  return response.data;
+}
+
+// ============================================================================
+// Lessons Learned API
+// ============================================================================
+
+/**
+ * Extract lessons learned from historical Confluence pages
+ * @param {string} pageId - Confluence page ID of the current project
+ * @param {object} checklist - Current project checklist for context
+ * @param {number} maxSiblings - Maximum number of sibling pages to analyze (default: 3)
+ * @returns {object} - { insights, sibling_pages_analyzed, family_page, customer_page, skipped, skip_reason }
+ */
+export async function extractLessonsLearned(pageId, checklist, maxSiblings = 3) {
+  const response = await api.post('/api/lessons/extract', {
+    page_id: pageId,
+    checklist: checklist,
+    max_siblings: maxSiblings,
   });
 
   return response.data;

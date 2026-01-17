@@ -20,7 +20,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Import routers
-from app.routers import ingest, draft, publish, meeting, qa, checklist, confluence, quote
+from app.routers import ingest, draft, publish, meeting, qa, checklist, confluence, quote, lessons
 
 app = FastAPI(
     title="Strategic Build Planner API",
@@ -29,7 +29,7 @@ app = FastAPI(
 )
 
 # Configure CORS - allow common dev ports
-default_origins = "http://localhost:5173,http://localhost:5174,http://localhost:3000"
+default_origins = "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:3000"
 origins = os.getenv("CORS_ORIGINS", default_origins).split(",")
 app.add_middleware(
     CORSMiddleware,
@@ -64,6 +64,7 @@ async def root():
             "checklist": "/api/checklist",
             "confluence": "/api/confluence",
             "quote": "/api/quote",
+            "lessons": "/api/lessons",
             "draft": "/api/draft",
             "publish": "/api/publish",
             "meeting": "/api/meeting/apply",
@@ -81,6 +82,7 @@ app.include_router(qa.router, prefix="/api/qa", tags=["qa"])
 app.include_router(checklist.router, tags=["checklist"])
 app.include_router(confluence.router, tags=["confluence"])
 app.include_router(quote.router, tags=["quote"])
+app.include_router(lessons.router, tags=["lessons"])
 
 if __name__ == "__main__":
     import uvicorn
