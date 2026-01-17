@@ -271,6 +271,7 @@ class UpdateTemplateRequest(BaseModel):
     checklist: dict
     page_id: str  # The existing page to update
     quote_assumptions: Optional[List[str]] = None  # List of quote assumptions to add
+    lessons: Optional[List[dict]] = None  # List of accepted lessons learned to inject
 
 
 @router.post("/publish/template", response_model=PublishResponse)
@@ -307,6 +308,9 @@ async def update_template_with_checklist(request: UpdateTemplateRequest):
         # Extract quote assumptions from comparison data if available
         quote_assumptions = request.quote_assumptions or []
 
+        # Extract lessons learned if available
+        lessons = request.lessons or []
+
         # Log what we're working with
         categories = checklist.get("categories", [])
         items_with_answers = sum(
@@ -316,6 +320,7 @@ async def update_template_with_checklist(request: UpdateTemplateRequest):
         )
         logger.info(f"Checklist has {len(categories)} categories, {items_with_answers} items with answers")
         logger.info(f"Quote assumptions: {len(quote_assumptions)}")
+        logger.info(f"Lessons learned: {len(lessons)}")
 
         # Initialize Confluence service
         confluence = ConfluenceService()
@@ -325,6 +330,7 @@ async def update_template_with_checklist(request: UpdateTemplateRequest):
             page_id=request.page_id,
             checklist=checklist,
             quote_assumptions=quote_assumptions,
+            lessons=lessons,
         )
 
         logger.info(

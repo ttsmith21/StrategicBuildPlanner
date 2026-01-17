@@ -687,6 +687,7 @@ class ConfluenceService:
         page_id: str,
         checklist: Dict[str, Any],
         quote_assumptions: Optional[List[str]] = None,
+        lessons: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """
         Fill an existing Confluence template page with checklist data.
@@ -695,6 +696,7 @@ class ConfluenceService:
             page_id: ID of the template page to update
             checklist: Checklist dictionary with categories and items
             quote_assumptions: Optional list of quote assumptions to add
+            lessons: Optional list of accepted lessons learned to inject
 
         Returns:
             Dict with updated page info (id, title, url, version)
@@ -724,7 +726,7 @@ class ConfluenceService:
 
         # Update the content
         updated_content = self._inject_checklist_into_template(
-            existing_content, checklist_by_category, quote_assumptions
+            existing_content, checklist_by_category, quote_assumptions, lessons
         )
 
         # Update the page
@@ -738,6 +740,7 @@ class ConfluenceService:
         content: str,
         checklist_by_category: Dict[str, List[Dict]],
         quote_assumptions: Optional[List[str]] = None,
+        lessons: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         """
         Inject checklist data into template content.
@@ -747,10 +750,15 @@ class ConfluenceService:
         2. For each section, find matching checklist categories
         3. Insert checklist items after the section heading
         4. Add quote assumptions to a dedicated section
+        5. Add lessons learned to appropriate sections or a dedicated section
         """
         # Add quote assumptions section if provided
         if quote_assumptions:
             content = self._add_quote_assumptions_section(content, quote_assumptions)
+
+        # Add lessons learned section if provided
+        if lessons:
+            content = self._add_lessons_section(content, lessons)
 
         # For each checklist category, find matching template sections and inject data
         for category_name, items in checklist_by_category.items():
@@ -797,6 +805,104 @@ class ConfluenceService:
 {assumptions_html}
 """
                     content = content[:insert_pos] + assumptions_section + content[insert_pos:]
+
+        return content
+
+    def _add_lessons_section(
+        self, content: str, lessons: List[Dict[str, Any]]
+    ) -> str:
+        """
+        Add lessons learned section to the content.
+
+        Lessons are grouped by category and displayed with recommendations.
+        """
+        if not lessons:
+            return content
+
+        # Category colors for visual distinction
+        category_colors = {
+            "Quality Issue": "Red",
+            "Risk Warning": "Yellow",
+            "Best Practice": "Green",
+            "Customer Feedback": "Blue",
+            "Process Improvement": "Purple",
+        }
+
+        # Build lessons HTML
+        lessons_html = """
+<ac:structured-macro ac:name="panel">
+  <ac:parameter ac:name="title">Lessons Learned from Historical Projects</ac:parameter>
+  <ac:parameter ac:name="bgColor">#fffae6</ac:parameter>
+  <ac:rich-text-body>
+    <p><em>The following insights were extracted from sibling projects, family documentation, and customer history.</em></p>
+  </ac:rich-text-body>
+</ac:structured-macro>
+"""
+
+        # Group lessons by category
+        lessons_by_category = {}
+        for lesson in lessons:
+            category = lesson.get("category", "Other")
+            if category not in lessons_by_category:
+                lessons_by_category[category] = []
+            lessons_by_category[category].append(lesson)
+
+        # Render each category
+        for category, category_lessons in lessons_by_category.items():
+            color = category_colors.get(category, "Grey")
+            lessons_html += f"""
+<h3>
+  <ac:structured-macro ac:name="status">
+    <ac:parameter ac:name="colour">{color}</ac:parameter>
+    <ac:parameter ac:name="title">{self._escape_html(category)}</ac:parameter>
+  </ac:structured-macro>
+</h3>
+<ul>
+"""
+            for lesson in category_lessons:
+                title = self._escape_html(lesson.get("title", "Untitled"))
+                description = self._escape_html(lesson.get("description", ""))
+                recommendation = self._escape_html(lesson.get("recommendation", ""))
+
+                lessons_html += f"""<li>
+  <strong>{title}</strong>
+  <p>{description}</p>
+  <p><em>Recommendation: {recommendation}</em></p>
+</li>
+"""
+            lessons_html += "</ul>\n"
+
+        # Try to find existing "Lessons Learned" or "History" section
+        history_patterns = [
+            r'(<h[23][^>]*>.*?[Ll]essons?\s*[Ll]earned.*?</h[23]>)',
+            r'(<h[23][^>]*>.*?[Hh]istory\s*[Rr]eview.*?</h[23]>)',
+            r'(<h[23][^>]*>.*?[Hh]istorical.*?</h[23]>)',
+        ]
+
+        for pattern in history_patterns:
+            match = re.search(pattern, content)
+            if match:
+                # Insert after the heading
+                insert_pos = match.end()
+                content = content[:insert_pos] + "\n" + lessons_html + content[insert_pos:]
+                return content
+
+        # No existing section found - add before footer or at end
+        footer_pattern = r'(<hr\s*/?>[\s\S]*?Northern Manufacturing)'
+        match = re.search(footer_pattern, content)
+        if match:
+            insert_pos = match.start()
+            section_html = f"""
+<h2>Lessons Learned</h2>
+{lessons_html}
+"""
+            content = content[:insert_pos] + section_html + content[insert_pos:]
+        else:
+            # Add at the end
+            content += f"""
+<h2>Lessons Learned</h2>
+{lessons_html}
+"""
 
         return content
 

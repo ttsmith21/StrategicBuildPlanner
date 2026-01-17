@@ -186,13 +186,15 @@ export async function publishChecklist(checklist, parentPageId = null) {
  * @param {object} checklist - The checklist data to publish
  * @param {string} pageId - The ID of the existing page to update
  * @param {string[]} quoteAssumptions - List of quote assumptions to add
+ * @param {object[]} lessons - List of accepted lessons learned to inject
  * @returns {Promise<object>} - Published page info with page_url
  */
-export async function updateTemplateWithChecklist(checklist, pageId, quoteAssumptions = []) {
+export async function updateTemplateWithChecklist(checklist, pageId, quoteAssumptions = [], lessons = []) {
   const response = await api.post('/api/checklist/publish/template', {
     checklist: checklist,
     page_id: pageId,
     quote_assumptions: quoteAssumptions,
+    lessons: lessons,
   });
 
   return response.data;
@@ -357,6 +359,27 @@ export async function resolveConflicts(checklist, comparison, resolutions) {
     checklist: checklist,
     comparison: comparison,
     resolutions: resolutions,
+  });
+
+  return response.data;
+}
+
+// ============================================================================
+// Lessons Learned API
+// ============================================================================
+
+/**
+ * Extract lessons learned from historical Confluence pages
+ * @param {string} pageId - Confluence page ID of the current project
+ * @param {object} checklist - Current project checklist for context
+ * @param {number} maxSiblings - Maximum number of sibling pages to analyze (default: 3)
+ * @returns {object} - { insights, sibling_pages_analyzed, family_page, customer_page, skipped, skip_reason }
+ */
+export async function extractLessonsLearned(pageId, checklist, maxSiblings = 3) {
+  const response = await api.post('/api/lessons/extract', {
+    page_id: pageId,
+    checklist: checklist,
+    max_siblings: maxSiblings,
   });
 
   return response.data;

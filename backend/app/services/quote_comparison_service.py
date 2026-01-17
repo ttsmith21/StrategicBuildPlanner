@@ -153,17 +153,25 @@ specific standards (AWS, ASME, ASTM, etc.), include those."""
         # Use AI to find matches and conflicts
         prompt = f"""Compare these vendor quote assumptions against customer requirements.
 
+CRITICAL: Only compare items WITHIN THE SAME CATEGORY. Do NOT match items across different categories.
+- Material Standards items should only be compared to Material Standards items
+- Fabrication Process items should only be compared to Fabrication Process items
+- Finishing Requirements should only be compared to Finishing Requirements
+- And so on for each category
+
+Each item includes a "category" or "category_name" field - use this to ensure same-category matching.
+
 CUSTOMER REQUIREMENTS (from specification documents):
 {json.dumps(checklist_items, indent=2)}
 
 VENDOR QUOTE ASSUMPTIONS:
 {json.dumps(quote_items, indent=2)}
 
-Analyze each pair and identify:
-1. MATCHES - Quote assumption aligns with customer requirement
-2. CONFLICTS - Quote assumption contradicts customer requirement (CRITICAL!)
-3. QUOTE_ONLY - Assumption in quote not covered by customer requirements
-4. CHECKLIST_ONLY - Customer requirement not addressed in quote
+Analyze each pair WITHIN THE SAME CATEGORY and identify:
+1. MATCHES - Quote assumption aligns with customer requirement (same category only)
+2. CONFLICTS - Quote assumption contradicts customer requirement (same category only - CRITICAL!)
+3. QUOTE_ONLY - Assumption in quote not covered by customer requirements in that category
+4. CHECKLIST_ONLY - Customer requirement not addressed in quote for that category
 
 For conflicts, be specific about what's different and why it matters.
 
@@ -532,7 +540,7 @@ Focus especially on:
 
             item["resolution"]["note"] = "Action item created for vendor discussion"
             item["resolution"]["action_item"] = action_item
-            item["status"] = "pending_resolution"
+            item["status"] = "action_item_created"  # Changed from pending_resolution to indicate follow-up task exists
 
         elif resolution_type == "custom":
             # Use custom resolution text

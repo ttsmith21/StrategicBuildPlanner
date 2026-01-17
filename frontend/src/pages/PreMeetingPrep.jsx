@@ -15,6 +15,7 @@ import {
   FileText,
   GitCompare,
   SkipForward,
+  BookOpen,
 } from 'lucide-react';
 
 import UploadZone from '../components/UploadZone';
@@ -22,6 +23,7 @@ import ChecklistPreview from '../components/ChecklistPreview';
 import QuoteUpload from '../components/QuoteUpload';
 import ComparisonView from '../components/ComparisonView';
 import ConfluenceSearch from '../components/ConfluenceSearch';
+import LessonsLearned from '../components/LessonsLearned';
 import {
   ingestDocuments,
   generateChecklist,
@@ -30,6 +32,7 @@ import {
   compareQuoteWithChecklist,
   generateMergePreview,
   resolveConflicts,
+  extractLessonsLearned,
 } from '../services/api';
 
 const WORKFLOW_STEPS = [
@@ -37,6 +40,7 @@ const WORKFLOW_STEPS = [
   { id: 'checklist', label: 'Generate Checklist', icon: ListChecks },
   { id: 'quote', label: 'Upload Quote', icon: FileText },
   { id: 'compare', label: 'Compare', icon: GitCompare },
+  { id: 'lessons', label: 'Lessons Learned', icon: BookOpen },
   { id: 'publish', label: 'Publish', icon: PublishIcon },
 ];
 
@@ -73,6 +77,79 @@ export default function PreMeetingPrep() {
 
   // Confluence parent page selection
   const [selectedConfluencePage, setSelectedConfluencePage] = useState(null);
+
+  // Lessons learned state
+  const [lessonsData, setLessonsData] = useState(null);
+  const [lessonSelections, setLessonSelections] = useState({});
+  const [acceptedLessons, setAcceptedLessons] = useState([]);
+  const [isExtractingLessons, setIsExtractingLessons] = useState(false);
+
+  // Debug hook for automated testing - exposes state setters on window
+  useEffect(() => {
+    window.__preMeetingPrepDebug = {
+      setCurrentStep,
+      setChecklist,
+      setVectorStoreId,
+      setProjectName,
+      setCustomerName,
+      setSelectedConfluencePage,
+      setQuoteAssumptions,
+      setComparison,
+      setMergePreview,
+      setResolutions,
+      setLessonsData,
+      getState: () => ({
+        currentStep,
+        checklist,
+        vectorStoreId,
+        projectName,
+        customerName,
+        selectedConfluencePage,
+        quoteAssumptions,
+        comparison,
+        mergePreview,
+        resolutions,
+        lessonsData,
+      }),
+    };
+    return () => {
+      delete window.__preMeetingPrepDebug;
+    };
+  });
+
+  // Auto-extract lessons when entering lessons step
+  useEffect(() => {
+    if (currentStep === 'lessons' && !lessonsData && !isExtractingLessons) {
+      // Check if we have a selected Confluence page
+      if (selectedConfluencePage?.id) {
+        // Extract lessons from historical pages
+        const extractLessons = async () => {
+          setIsExtractingLessons(true);
+          setError(null);
+          try {
+            const result = await extractLessonsLearned(
+              selectedConfluencePage.id,
+              checklist,
+              3 // max siblings
+            );
+            setLessonsData(result);
+          } catch (err) {
+            console.error('Failed to extract lessons:', err);
+            setLessonsData({
+              skipped: true,
+              skip_reason: err.response?.data?.detail || 'Failed to extract lessons learned',
+            });
+          } finally {
+            setIsExtractingLessons(false);
+          }
+        };
+        extractLessons();
+      } else {
+        // No page selected - show skipped state
+        setLessonsData({ skipped: true, skip_reason: 'No Confluence page selected' });
+      }
+    }
+  }, [currentStep, lessonsData, isExtractingLessons, selectedConfluencePage, checklist]);
 
   // Handle file upload and ingestion
   const handleIngest = useCallback(async () => {
@@ -148,9 +225,9 @@ export default function PreMeetingPrep() {
     }
   }, [quoteAssumptions, checklist]);
 
-  // Skip quote comparison
+  // Skip quote comparison - go to lessons
   const handleSkipQuote = useCallback(() => {
-    setCurrentStep('publish');
+    setCurrentStep('lessons');
   }, []);
 
   // Generate merge preview
@@ -203,8 +280,8 @@ export default function PreMeetingPrep() {
         setActionItemsCreated(result.action_items);
       }
 
-      // Show success and proceed to publish
-      setCurrentStep('publish');
+      // Show success and proceed to lessons learned
+      setCurrentStep('lessons');
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to apply resolutions');
     } finally {
@@ -212,8 +289,8 @@ export default function PreMeetingPrep() {
     }
   }, [checklist, comparison, resolutions]);
 
-  // Proceed to publish after comparison - apply any resolutions first
-  const handleProceedToPublish = useCallback(async () => {
+  // Proceed to lessons after comparison - apply any resolutions first (legacy, now redundant)
+  const handleProceedToLessons = useCallback(async () => {
     // If there are any resolutions, apply them before proceeding
     if (checklist && comparison && Object.keys(resolutions).length > 0) {
       setIsApplyingResolutions(true);
@@ -238,14 +315,66 @@ export default function PreMeetingPrep() {
         }
       } catch (err) {
         console.error('Failed to apply resolutions:', err);
-        // Continue to publish even if resolution fails
+        // Continue to lessons even if resolution fails
       } finally {
         setIsApplyingResolutions(false);
       }
     }
 
-    setCurrentStep('publish');
+    setCurrentStep('lessons');
   }, [checklist, comparison, resolutions]);
+
+  // Extract lessons learned from historical pages
+  const handleExtractLessons = useCallback(async () => {
+    if (!selectedConfluencePage?.id) {
+      // No page selected - skip to publish
+      setLessonsData({ skipped: true, skip_reason: 'No Confluence page selected' });
+      return;
+    }
+
+    setIsExtractingLessons(true);
+    setError(null);
+
+    try {
+      const result = await extractLessonsLearned(
+        selectedConfluencePage.id,
+        checklist,
+        3 // max siblings
+      );
+      setLessonsData(result);
+
+      // If skipped or no insights, auto-advance could happen here
+      // but we'll let the user see the UI and click continue
+    } catch (err) {
+      console.error('Failed to extract lessons:', err);
+      setLessonsData({
+        skipped: true,
+        skip_reason: err.response?.data?.detail || 'Failed to extract lessons learned',
+      });
+    } finally {
+      setIsExtractingLessons(false);
+    }
+  }, [selectedConfluencePage, checklist]);
+
+  // Handle lesson selection change
+  const handleLessonSelectionChange = useCallback((insightId, status, modifiedText) => {
+    setLessonSelections((prev) => ({
+      ...prev,
+      [insightId]: { status, modifiedText },
+    }));
+  }, []);
+
+  // Proceed from lessons to publish
+  const handleProceedFromLessons = useCallback((lessons) => {
+    setAcceptedLessons(lessons || []);
+    setCurrentStep('publish');
+  }, []);
+
+  // Skip lessons phase
+  const handleSkipLessons = useCallback(() => {
+    setAcceptedLessons([]);
+    setCurrentStep('publish');
+  }, []);
 
   // Handle Confluence page selection - auto-populate project and customer names
   const handleConfluencePageSelect = useCallback((page) => {
@@ -319,11 +448,13 @@ export default function PreMeetingPrep() {
         }
 
         console.log('Quote assumptions to add:', quoteAssumptions.length);
+        console.log('Accepted lessons to add:', acceptedLessons.length);
 
         result = await updateTemplateWithChecklist(
           currentChecklist,
           selectedConfluencePage.id,
-          quoteAssumptions
+          quoteAssumptions,
+          acceptedLessons
         );
       } else {
         // No page selected - create a new page (old behavior)
@@ -343,7 +474,7 @@ export default function PreMeetingPrep() {
     } finally {
       setIsLoading(false);
     }
-  }, [selectedConfluencePage, comparison]); // Using ref for checklist, so no dependency needed
+  }, [selectedConfluencePage, comparison, acceptedLessons]); // Using ref for checklist, so no dependency needed
 
   // Reset workflow
   const handleReset = () => {
@@ -365,6 +496,11 @@ export default function PreMeetingPrep() {
     setActionItemsCreated([]);
     // Reset Confluence selection
     setSelectedConfluencePage(null);
+    // Reset lessons state
+    setLessonsData(null);
+    setLessonSelections({});
+    setAcceptedLessons([]);
+    setIsExtractingLessons(false);
   };
 
   const getStepStatus = (stepId) => {
@@ -376,6 +512,18 @@ export default function PreMeetingPrep() {
     if (stepIndex === currentIndex) return 'current';
     return 'upcoming';
   };
+
+  // Handle clicking on a workflow step to navigate back
+  const handleStepClick = useCallback((stepId) => {
+    const stepOrder = WORKFLOW_STEPS.map((s) => s.id);
+    const currentIndex = stepOrder.indexOf(currentStep);
+    const stepIndex = stepOrder.indexOf(stepId);
+
+    // Only allow navigating to completed steps (not forward)
+    if (stepIndex < currentIndex) {
+      setCurrentStep(stepId);
+    }
+  }, [currentStep]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -409,15 +557,18 @@ export default function PreMeetingPrep() {
           <nav className="flex items-center justify-center">
             {WORKFLOW_STEPS.map((step, index) => {
               const status = getStepStatus(step.id);
+              const isClickable = status === 'completed';
               return (
                 <div key={step.id} className="flex items-center">
                   <div
+                    onClick={isClickable ? () => handleStepClick(step.id) : undefined}
                     className={`
-                      flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
-                      ${status === 'completed' ? 'text-green-700 bg-green-50' : ''}
+                      flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors
+                      ${status === 'completed' ? 'text-green-700 bg-green-50 cursor-pointer hover:bg-green-100' : ''}
                       ${status === 'current' ? 'text-primary-700 bg-primary-50' : ''}
                       ${status === 'upcoming' ? 'text-gray-400' : ''}
                     `}
+                    title={isClickable ? `Go back to ${step.label}` : ''}
                   >
                     {status === 'completed' ? (
                       <CheckCircle className="h-5 w-5 text-green-500" />
@@ -720,15 +871,30 @@ export default function PreMeetingPrep() {
               {/* Show skip button only if there are no conflicts or conflicts aren't all resolved */}
               {(!comparison?.conflicts?.length || Object.keys(resolutions).length < comparison?.conflicts?.length) && (
                 <button
-                  onClick={handleProceedToPublish}
+                  onClick={handleProceedToLessons}
                   disabled={isLoading || isApplyingResolutions}
                   className="flex items-center gap-2 px-6 py-3 bg-gray-500 text-white font-medium rounded-lg hover:bg-gray-600 disabled:opacity-50"
                 >
                   <SkipForward className="h-5 w-5" />
-                  Skip to Publish
+                  Continue to Lessons
                 </button>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Step: Lessons Learned */}
+        {currentStep === 'lessons' && (
+          <div className="max-w-5xl mx-auto">
+            <LessonsLearned
+              lessonsData={lessonsData}
+              selections={lessonSelections}
+              onSelectionChange={handleLessonSelectionChange}
+              onProceed={handleProceedFromLessons}
+              onSkip={handleSkipLessons}
+              isLoading={isExtractingLessons}
+              disabled={isLoading}
+            />
           </div>
         )}
 
