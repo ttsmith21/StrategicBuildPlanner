@@ -74,6 +74,8 @@ async def generate_draft(request: DraftRequest) -> PlanResponse:
 ```
 
 ### Testing
+- **Smoke tests**: `python run_smoke_tests.py` (17 end-to-end API tests)
+- **Quick smoke tests**: `python run_smoke_tests.py --quick` (skip slow AI tests)
 - Unit tests: `pytest backend/ -v` (test files in backend root)
 - Coverage: `pytest --cov=app backend/`
 - Mock external APIs (OpenAI, Confluence, Asana)
