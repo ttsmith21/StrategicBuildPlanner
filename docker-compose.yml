@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL_PLAN=${OPENAI_MODEL_PLAN:-gpt-4o}
+      - CONFLUENCE_BASE_URL=${CONFLUENCE_BASE_URL}
+      - CONFLUENCE_API_TOKEN=${CONFLUENCE_API_TOKEN}
+      - CONFLUENCE_USER_EMAIL=${CONFLUENCE_USER_EMAIL}
+      - ASANA_TOKEN=${ASANA_TOKEN:-}
+      - CORS_ORIGINS=http://localhost,http://localhost:80,http://localhost:3000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # React Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=http://localhost:8000
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+# For production with custom domain, uncomment and configure:
+# networks:
+#   default:
+#     name: strategic-build-planner
