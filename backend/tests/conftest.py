@@ -13,9 +13,7 @@ TIMEOUT = 180.0  # 3 minutes for AI operations
 
 def pytest_configure(config):
     """Register custom markers"""
-    config.addinivalue_line(
-        "markers", "slow: marks tests as slow (AI operations)"
-    )
+    config.addinivalue_line("markers", "slow: marks tests as slow (AI operations)")
     config.addinivalue_line(
         "markers", "requires_confluence: marks tests requiring Confluence access"
     )

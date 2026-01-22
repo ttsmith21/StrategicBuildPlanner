@@ -34,8 +34,12 @@ class ActionItemDetails(BaseModel):
 class ConflictResolution(BaseModel):
     """Resolution for a single conflict"""
 
-    conflict_index: int = Field(..., description="Index of the conflict in the comparison array")
-    resolution_type: ResolutionType = Field(..., description="Type of resolution chosen")
+    conflict_index: int = Field(
+        ..., description="Index of the conflict in the comparison array"
+    )
+    resolution_type: ResolutionType = Field(
+        ..., description="Type of resolution chosen"
+    )
     resolved_value: Optional[str] = Field(
         None, description="The final text to use (auto-populated based on type)"
     )
@@ -45,7 +49,9 @@ class ConflictResolution(BaseModel):
     action_item: Optional[ActionItemDetails] = Field(
         None, description="Action item details (when type is 'action_item')"
     )
-    notes: Optional[str] = Field(None, description="Additional notes about the resolution")
+    notes: Optional[str] = Field(
+        None, description="Additional notes about the resolution"
+    )
 
 
 class ResolveConflictsRequest(BaseModel):
@@ -72,13 +78,9 @@ class ResolutionSummary(BaseModel):
     """Summary of resolution actions taken"""
 
     total_resolved: int = Field(default=0, description="Total conflicts resolved")
-    kept_customer_spec: int = Field(
-        default=0, description="Count using customer spec"
-    )
+    kept_customer_spec: int = Field(default=0, description="Count using customer spec")
     accepted_quote: int = Field(default=0, description="Count accepting quote")
-    used_ai_suggestion: int = Field(
-        default=0, description="Count using AI suggestion"
-    )
+    used_ai_suggestion: int = Field(default=0, description="Count using AI suggestion")
     action_items_created: int = Field(
         default=0, description="Count of action items created"
     )

@@ -51,7 +51,9 @@ class LessonInsight(BaseModel):
         description="Category: Quality Issue, Risk Warning, Best Practice, Customer Feedback, Process Improvement",
     )
     title: str = Field(..., description="Brief title for the insight")
-    description: str = Field(..., description="Detailed description of what was learned")
+    description: str = Field(
+        ..., description="Detailed description of what was learned"
+    )
     recommendation: str = Field(
         ..., description="Recommended action for current project"
     )
@@ -85,9 +87,7 @@ class LessonsExtractResponse(BaseModel):
     customer_page: Optional[PageReference] = Field(
         None, description="Customer (grandparent) page that was analyzed"
     )
-    skipped: bool = Field(
-        default=False, description="Whether extraction was skipped"
-    )
+    skipped: bool = Field(default=False, description="Whether extraction was skipped")
     skip_reason: Optional[str] = Field(
         None, description="Reason for skipping extraction"
     )
@@ -153,12 +153,16 @@ async def extract_lessons(request: LessonsExtractRequest) -> LessonsExtractRespo
                 PageReference(id=p["id"], title=p["title"])
                 for p in result.get("sibling_pages_analyzed", [])
             ],
-            family_page=PageReference(**result["family_page"])
-            if result.get("family_page")
-            else None,
-            customer_page=PageReference(**result["customer_page"])
-            if result.get("customer_page")
-            else None,
+            family_page=(
+                PageReference(**result["family_page"])
+                if result.get("family_page")
+                else None
+            ),
+            customer_page=(
+                PageReference(**result["customer_page"])
+                if result.get("customer_page")
+                else None
+            ),
             skipped=result.get("skipped", False),
             skip_reason=result.get("skip_reason"),
         )

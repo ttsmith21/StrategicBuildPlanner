@@ -71,7 +71,9 @@ class PageContent(BaseModel):
 
 @router.get("/search", response_model=List[PageSummary])
 async def search_pages(
-    q: str = Query(..., description="Search query (job number like F12345, or keywords)"),
+    q: str = Query(
+        ..., description="Search query (job number like F12345, or keywords)"
+    ),
     space: str = Query("KB", description="Confluence space key"),
 ):
     """
@@ -131,7 +133,9 @@ async def get_hierarchy(
     except ValueError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get hierarchy: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get hierarchy: {str(e)}"
+        )
 
 
 # ============================================================================
@@ -187,7 +191,9 @@ async def get_page_text(page_id: str):
     except ValueError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get page text: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get page text: {str(e)}"
+        )
 
 
 @router.get("/page/{page_id}/context")

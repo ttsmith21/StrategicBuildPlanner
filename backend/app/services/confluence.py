@@ -619,7 +619,10 @@ class ConfluenceService:
 
         # Resolution Summary (if resolutions were applied)
         resolution_summary = checklist.get("resolution_summary", {})
-        if checklist.get("resolutions_applied") or resolution_summary.get("total_resolved", 0) > 0:
+        if (
+            checklist.get("resolutions_applied")
+            or resolution_summary.get("total_resolved", 0) > 0
+        ):
             html_parts.append(
                 f"""
 <ac:structured-macro ac:name="panel">
@@ -674,7 +677,11 @@ class ConfluenceService:
     TEMPLATE_SECTION_MAP = {
         "Material Standards": ["Material Restrictions", "Welding Code & Materials"],
         "Fabrication Process Standards": ["Build Strategy"],
-        "Welding & NDE Requirements": ["Welding Code & Materials", "MTRs", "Quality Plan"],
+        "Welding & NDE Requirements": [
+            "Welding Code & Materials",
+            "MTRs",
+            "Quality Plan",
+        ],
         "Quality Documentation": ["Quality Plan (ITP)"],
         "Painting & Coating": ["Finishing / cosmetic strategy"],
         "Dimensional & Tolerances": ["Quality Plan"],
@@ -718,7 +725,8 @@ class ConfluenceService:
         for category in checklist.get("categories", []):
             cat_name = category.get("name", "")
             items_with_answers = [
-                item for item in category.get("items", [])
+                item
+                for item in category.get("items", [])
                 if item.get("answer") and item.get("status") == "requirement_found"
             ]
             if items_with_answers:
@@ -778,39 +786,48 @@ class ConfluenceService:
         # Build the assumptions HTML
         assumptions_html = "<ul>\n"
         for assumption in assumptions:
-            assumptions_html += f'<li>{self._escape_html(assumption)} <strong>[Quote]</strong></li>\n'
+            assumptions_html += (
+                f"<li>{self._escape_html(assumption)} <strong>[Quote]</strong></li>\n"
+            )
         assumptions_html += "</ul>\n"
 
         # Look for existing [Quote] section or assumptions marker
         # Try to find a section that already has [Quote] markers
-        quote_pattern = r'(<ul>[\s\S]*?\[Quote\][\s\S]*?</ul>)'
+        quote_pattern = r"(<ul>[\s\S]*?\[Quote\][\s\S]*?</ul>)"
         if re.search(quote_pattern, content):
             # Replace existing quote assumptions section
             content = re.sub(quote_pattern, assumptions_html, content, count=1)
         else:
             # Look for "Assumptions" or similar heading and add after it
-            assumption_heading_pattern = r'(<h[23][^>]*>.*?[Aa]ssumptions?.*?</h[23]>)'
+            assumption_heading_pattern = r"(<h[23][^>]*>.*?[Aa]ssumptions?.*?</h[23]>)"
             match = re.search(assumption_heading_pattern, content)
             if match:
                 # Insert after the heading
                 insert_pos = match.end()
-                content = content[:insert_pos] + "\n" + assumptions_html + content[insert_pos:]
+                content = (
+                    content[:insert_pos]
+                    + "\n"
+                    + assumptions_html
+                    + content[insert_pos:]
+                )
             else:
                 # Add at the beginning after any info panel
-                info_panel_end = content.find('</ac:structured-macro>')
+                info_panel_end = content.find("</ac:structured-macro>")
                 if info_panel_end > 0:
-                    insert_pos = info_panel_end + len('</ac:structured-macro>')
+                    insert_pos = info_panel_end + len("</ac:structured-macro>")
                     assumptions_section = f"""
 <h2>Quote Assumptions</h2>
 {assumptions_html}
 """
-                    content = content[:insert_pos] + assumptions_section + content[insert_pos:]
+                    content = (
+                        content[:insert_pos]
+                        + assumptions_section
+                        + content[insert_pos:]
+                    )
 
         return content
 
-    def _add_lessons_section(
-        self, content: str, lessons: List[Dict[str, Any]]
-    ) -> str:
+    def _add_lessons_section(self, content: str, lessons: List[Dict[str, Any]]) -> str:
         """
         Add lessons learned section to the content.
 
@@ -874,9 +891,9 @@ class ConfluenceService:
 
         # Try to find existing "Lessons Learned" or "History" section
         history_patterns = [
-            r'(<h[23][^>]*>.*?[Ll]essons?\s*[Ll]earned.*?</h[23]>)',
-            r'(<h[23][^>]*>.*?[Hh]istory\s*[Rr]eview.*?</h[23]>)',
-            r'(<h[23][^>]*>.*?[Hh]istorical.*?</h[23]>)',
+            r"(<h[23][^>]*>.*?[Ll]essons?\s*[Ll]earned.*?</h[23]>)",
+            r"(<h[23][^>]*>.*?[Hh]istory\s*[Rr]eview.*?</h[23]>)",
+            r"(<h[23][^>]*>.*?[Hh]istorical.*?</h[23]>)",
         ]
 
         for pattern in history_patterns:
@@ -884,11 +901,13 @@ class ConfluenceService:
             if match:
                 # Insert after the heading
                 insert_pos = match.end()
-                content = content[:insert_pos] + "\n" + lessons_html + content[insert_pos:]
+                content = (
+                    content[:insert_pos] + "\n" + lessons_html + content[insert_pos:]
+                )
                 return content
 
         # No existing section found - add before footer or at end
-        footer_pattern = r'(<hr\s*/?>[\s\S]*?Northern Manufacturing)'
+        footer_pattern = r"(<hr\s*/?>[\s\S]*?Northern Manufacturing)"
         match = re.search(footer_pattern, content)
         if match:
             insert_pos = match.start()
@@ -925,23 +944,25 @@ class ConfluenceService:
         # Try multiple patterns to find the section
         patterns = [
             # Pattern 1: h2/h3 headings
-            rf'(<h[23][^>]*>[^<]*{escaped_name}[^<]*</h[23]>)',
+            rf"(<h[23][^>]*>[^<]*{escaped_name}[^<]*</h[23]>)",
             # Pattern 2: Bold text with colon (inline label style)
-            rf'(<strong>{escaped_name}:?</strong>)',
-            rf'(<b>{escaped_name}:?</b>)',
+            rf"(<strong>{escaped_name}:?</strong>)",
+            rf"(<b>{escaped_name}:?</b>)",
             # Pattern 3: Paragraph containing bold section name
-            rf'(<p[^>]*><strong>{escaped_name}:?</strong>)',
+            rf"(<p[^>]*><strong>{escaped_name}:?</strong>)",
             # Pattern 4: Table cell with bold
-            rf'(<td[^>]*><strong>{escaped_name}</strong></td>)',
+            rf"(<td[^>]*><strong>{escaped_name}</strong></td>)",
             # Pattern 5: Any tag containing the section name as text
-            rf'(<[^>]+>[^<]*{escaped_name}[^<]*</[^>]+>)',
+            rf"(<[^>]+>[^<]*{escaped_name}[^<]*</[^>]+>)",
         ]
 
         match = None
         for pattern in patterns:
             match = re.search(pattern, content, re.IGNORECASE)
             if match:
-                logger.debug(f"Found section '{section_name}' with pattern: {pattern[:50]}...")
+                logger.debug(
+                    f"Found section '{section_name}' with pattern: {pattern[:50]}..."
+                )
                 break
 
         if not match:
@@ -952,7 +973,7 @@ class ConfluenceService:
         items_html = f" <em>[From {category_name}]</em> "
 
         # For heading-style sections, use block format
-        if match.group(0).startswith('<h'):
+        if match.group(0).startswith("<h"):
             items_html = f"\n<p><strong>From {category_name}:</strong></p>\n<ul>\n"
             for item in items:
                 question = self._escape_html(item.get("question", ""))
@@ -961,9 +982,9 @@ class ConfluenceService:
 
                 if resolution:
                     res_note = resolution.get("note", "")
-                    items_html += f'<li><strong>{question}:</strong> {answer} <em>({res_note})</em></li>\n'
+                    items_html += f"<li><strong>{question}:</strong> {answer} <em>({res_note})</em></li>\n"
                 else:
-                    items_html += f'<li><strong>{question}:</strong> {answer}</li>\n'
+                    items_html += f"<li><strong>{question}:</strong> {answer}</li>\n"
             items_html += "</ul>\n"
             insert_pos = match.end()
         else:
@@ -984,10 +1005,12 @@ class ConfluenceService:
             # Skip any existing content until we hit a line break or new section
             remaining = content[insert_pos:]
             # Find where to insert (after any existing text, before next element)
-            next_tag = re.search(r'<(?:p|br|div|h[123456]|strong|table|tr|td)', remaining, re.IGNORECASE)
+            next_tag = re.search(
+                r"<(?:p|br|div|h[123456]|strong|table|tr|td)", remaining, re.IGNORECASE
+            )
             if next_tag:
                 # Check if there's text content between match and next tag
-                between = remaining[:next_tag.start()]
+                between = remaining[: next_tag.start()]
                 if between.strip():
                     # There's existing content, append with separator
                     items_html = f"; {values_text}"
@@ -1063,7 +1086,9 @@ class ConfluenceService:
                         # Fallback: just get all pages in the space
                         cql = f'space = "{space}" AND type = page'
                         results = self.client.cql(cql, limit=50)
-                        children = [r.get("content", r) for r in results.get("results", [])]
+                        children = [
+                            r.get("content", r) for r in results.get("results", [])
+                        ]
                 except Exception as e:
                     logger.warning(f"Could not get space homepage: {e}")
                     # Fallback: just get all pages in the space
@@ -1132,9 +1157,7 @@ class ConfluenceService:
 
         return "unknown"
 
-    async def get_page_with_ancestors(
-        self, page_id: str
-    ) -> Optional[Dict[str, Any]]:
+    async def get_page_with_ancestors(self, page_id: str) -> Optional[Dict[str, Any]]:
         """
         Get a page with its full ancestor chain (for context)
 
@@ -1217,13 +1240,9 @@ class ConfluenceService:
 
         html += "<table>\n"
         if has_resolutions:
-            html += (
-                "<tr><th>Status</th><th>Question</th><th>Answer</th><th>Source</th><th>Resolution</th></tr>\n"
-            )
+            html += "<tr><th>Status</th><th>Question</th><th>Answer</th><th>Source</th><th>Resolution</th></tr>\n"
         else:
-            html += (
-                "<tr><th>Status</th><th>Question</th><th>Answer</th><th>Source</th></tr>\n"
-            )
+            html += "<tr><th>Status</th><th>Question</th><th>Answer</th><th>Source</th></tr>\n"
 
         for item in items:
             status = item.get("status", "unknown")

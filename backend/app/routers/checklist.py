@@ -217,12 +217,16 @@ async def publish_checklist_to_confluence(request: PublishChecklistRequest):
         resolutions_applied = checklist.get("resolutions_applied", False)
         resolution_summary = checklist.get("resolution_summary", {})
         logger.info(f"Publishing checklist to Confluence: {project_name}")
-        logger.info(f"Resolutions applied: {resolutions_applied}, Summary: {resolution_summary}")
+        logger.info(
+            f"Resolutions applied: {resolutions_applied}, Summary: {resolution_summary}"
+        )
 
         # Log first item from first category to verify data
         if checklist.get("categories") and checklist["categories"][0].get("items"):
             first_item = checklist["categories"][0]["items"][0]
-            logger.info(f"Sample item - Q: {first_item.get('question', 'N/A')[:50]}, A: {first_item.get('answer', 'N/A')[:50]}, Resolution: {first_item.get('resolution', 'None')}")
+            logger.info(
+                f"Sample item - Q: {first_item.get('question', 'N/A')[:50]}, A: {first_item.get('answer', 'N/A')[:50]}, Resolution: {first_item.get('resolution', 'None')}"
+            )
 
         # Initialize Confluence service
         confluence = ConfluenceService()
@@ -303,7 +307,9 @@ async def update_template_with_checklist(request: UpdateTemplateRequest):
             raise HTTPException(status_code=400, detail="No page_id provided")
 
         project_name = checklist.get("project_name", "Unknown Project")
-        logger.info(f"Updating template page {request.page_id} with checklist: {project_name}")
+        logger.info(
+            f"Updating template page {request.page_id} with checklist: {project_name}"
+        )
 
         # Extract quote assumptions from comparison data if available
         quote_assumptions = request.quote_assumptions or []
@@ -314,11 +320,14 @@ async def update_template_with_checklist(request: UpdateTemplateRequest):
         # Log what we're working with
         categories = checklist.get("categories", [])
         items_with_answers = sum(
-            1 for cat in categories
+            1
+            for cat in categories
             for item in cat.get("items", [])
             if item.get("answer") and item.get("status") == "requirement_found"
         )
-        logger.info(f"Checklist has {len(categories)} categories, {items_with_answers} items with answers")
+        logger.info(
+            f"Checklist has {len(categories)} categories, {items_with_answers} items with answers"
+        )
         logger.info(f"Quote assumptions: {len(quote_assumptions)}")
         logger.info(f"Lessons learned: {len(lessons)}")
 

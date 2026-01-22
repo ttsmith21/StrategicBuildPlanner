@@ -431,7 +431,9 @@ Focus especially on:
                     # Match by answer text (checklist requirement)
                     # Normalize both strings for comparison (case-insensitive, trim whitespace)
                     item_answer = (item.get("answer") or "").strip().lower()
-                    conflict_req = (conflict.get("checklist_requirement") or "").strip().lower()
+                    conflict_req = (
+                        (conflict.get("checklist_requirement") or "").strip().lower()
+                    )
 
                     # Also try matching by question if answer doesn't match
                     item_question = (item.get("question") or "").strip().lower()
@@ -439,21 +441,34 @@ Focus especially on:
 
                     # Match if answers match OR if category matches and it's the same requirement
                     is_match = (
-                        (item_answer and conflict_req and item_answer == conflict_req) or
-                        (item_answer and conflict_req and conflict_req in item_answer) or
-                        (item_answer and conflict_req and item_answer in conflict_req)
+                        (item_answer and conflict_req and item_answer == conflict_req)
+                        or (
+                            item_answer and conflict_req and conflict_req in item_answer
+                        )
+                        or (
+                            item_answer and conflict_req and item_answer in conflict_req
+                        )
                     )
 
                     if is_match:
                         resolution = resolution_lookup.get(idx)
                         if resolution:
-                            logger.info(f"Applying resolution to item: {item.get('question', 'Unknown')[:50]}...")
+                            logger.info(
+                                f"Applying resolution to item: {item.get('question', 'Unknown')[:50]}..."
+                            )
                             updated_item = self._apply_resolution_to_item(
-                                updated_item, conflict, resolution, summary, action_items, idx
+                                updated_item,
+                                conflict,
+                                resolution,
+                                summary,
+                                action_items,
+                                idx,
                             )
                             break
                         else:
-                            logger.debug(f"No resolution found for conflict index {idx}")
+                            logger.debug(
+                                f"No resolution found for conflict index {idx}"
+                            )
 
                 updated_category["items"].append(updated_item)
 
@@ -540,7 +555,9 @@ Focus especially on:
 
             item["resolution"]["note"] = "Action item created for vendor discussion"
             item["resolution"]["action_item"] = action_item
-            item["status"] = "action_item_created"  # Changed from pending_resolution to indicate follow-up task exists
+            item["status"] = (
+                "action_item_created"  # Changed from pending_resolution to indicate follow-up task exists
+            )
 
         elif resolution_type == "custom":
             # Use custom resolution text

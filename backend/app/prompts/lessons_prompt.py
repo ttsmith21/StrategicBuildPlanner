@@ -135,15 +135,19 @@ def build_lessons_prompt(
     """
     # Format sibling content
     if sibling_content:
-        sibling_text = "\n\n".join([
-            f"### {page.get('title', 'Untitled')}\n{page.get('content', 'No content')}"
-            for page in sibling_content
-        ])
+        sibling_text = "\n\n".join(
+            [
+                f"### {page.get('title', 'Untitled')}\n{page.get('content', 'No content')}"
+                for page in sibling_content
+            ]
+        )
     else:
         sibling_text = "No sibling projects found."
 
     # Format checklist categories
-    categories_text = ", ".join(checklist_categories) if checklist_categories else "All categories"
+    categories_text = (
+        ", ".join(checklist_categories) if checklist_categories else "All categories"
+    )
 
     return LESSONS_USER_PROMPT_TEMPLATE.format(
         project_context=project_context or "New manufacturing project",

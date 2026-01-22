@@ -225,7 +225,9 @@ Do NOT skip any prompts. If nothing found, use status "no_requirement"."""
                 json_text = response_text.split("```")[1].split("```")[0].strip()
 
             # Debug: log first 500 chars of response if parsing might fail
-            logger.debug(f"Batch {batch_id} raw response (first 500): {response_text[:500]}")
+            logger.debug(
+                f"Batch {batch_id} raw response (first 500): {response_text[:500]}"
+            )
 
             parsed = json.loads(json_text)
             results = parsed.get("results", [])

@@ -25,6 +25,7 @@ TEST_PROJECT_NAME = "SmokeTest"
 
 class TestResults:
     """Collect test results for summary report"""
+
     passed = 0
     failed = 0
     skipped = 0
@@ -49,7 +50,7 @@ def vector_store_id(client):
             response = client.post(
                 "/api/ingest",
                 files={"files": ("test.pdf", f, "application/pdf")},
-                data={"project_name": TEST_PROJECT_NAME}
+                data={"project_name": TEST_PROJECT_NAME},
             )
         if response.status_code == 200:
             return response.json()["vector_store_id"]
@@ -61,6 +62,7 @@ def vector_store_id(client):
 # =============================================================================
 # Category 1: Health & Basic Endpoints
 # =============================================================================
+
 
 class TestHealthEndpoints:
     """Basic health and configuration endpoints"""
@@ -84,6 +86,7 @@ class TestHealthEndpoints:
 # Category 2: Checklist Endpoints
 # =============================================================================
 
+
 class TestChecklistEndpoints:
     """Checklist generation and management"""
 
@@ -103,8 +106,8 @@ class TestChecklistEndpoints:
             "/api/checklist",
             json={
                 "vector_store_id": vector_store_id,
-                "project_name": TEST_PROJECT_NAME
-            }
+                "project_name": TEST_PROJECT_NAME,
+            },
         )
         assert response.status_code == 200
         data = response.json()
@@ -122,10 +125,7 @@ class TestChecklistEndpoints:
         """POST /api/checklist with invalid vector_store_id should fail gracefully"""
         response = client.post(
             "/api/checklist",
-            json={
-                "vector_store_id": "vs_invalid_12345",
-                "project_name": "Test"
-            }
+            json={"vector_store_id": "vs_invalid_12345", "project_name": "Test"},
         )
         # Should return error, not crash
         assert response.status_code in [400, 404, 500]
@@ -135,6 +135,7 @@ class TestChecklistEndpoints:
 # =============================================================================
 # Category 3: Quote Endpoints
 # =============================================================================
+
 
 class TestQuoteEndpoints:
     """Quote extraction and comparison"""
@@ -148,7 +149,7 @@ class TestQuoteEndpoints:
         with open(test_file, "rb") as f:
             response = client.post(
                 "/api/quote/extract",
-                files={"file": ("quote.pdf", f, "application/pdf")}
+                files={"file": ("quote.pdf", f, "application/pdf")},
             )
 
         assert response.status_code == 200
@@ -157,7 +158,9 @@ class TestQuoteEndpoints:
         assert "assumptions" in data
         assert len(data["assumptions"]) >= 10, "Should extract at least 10 assumptions"
         TestResults.passed += 1
-        TestResults.details.append(f"Quote: {len(data['assumptions'])} assumptions extracted")
+        TestResults.details.append(
+            f"Quote: {len(data['assumptions'])} assumptions extracted"
+        )
 
     def test_compare_quote_to_checklist(self, client):
         """POST /api/quote/compare - Should compare quote to checklist"""
@@ -166,27 +169,33 @@ class TestQuoteEndpoints:
             json={
                 "checklist": {
                     "project_name": "Test",
-                    "categories": [{
-                        "id": "mat",
-                        "name": "Material",
-                        "items": [{
-                            "prompt_id": "m1",
-                            "question": "MTR Requirements",
-                            "answer": "MTRs required for all materials",
-                            "status": "requirement_found"
-                        }]
-                    }]
+                    "categories": [
+                        {
+                            "id": "mat",
+                            "name": "Material",
+                            "items": [
+                                {
+                                    "prompt_id": "m1",
+                                    "question": "MTR Requirements",
+                                    "answer": "MTRs required for all materials",
+                                    "status": "requirement_found",
+                                }
+                            ],
+                        }
+                    ],
                 },
                 "quote_assumptions": {
                     "vendor_name": "Test Vendor",
                     "quote_number": "Q-123",
-                    "assumptions": [{
-                        "category_id": "mat",
-                        "text": "MTRs provided for base materials only",
-                        "implication": "No MTRs for consumables"
-                    }]
-                }
-            }
+                    "assumptions": [
+                        {
+                            "category_id": "mat",
+                            "text": "MTRs provided for base materials only",
+                            "implication": "No MTRs for consumables",
+                        }
+                    ],
+                },
+            },
         )
 
         assert response.status_code == 200
@@ -200,6 +209,7 @@ class TestQuoteEndpoints:
 # =============================================================================
 # Category 4: Confluence Endpoints
 # =============================================================================
+
 
 class TestConfluenceEndpoints:
     """Confluence integration"""
@@ -242,6 +252,7 @@ class TestConfluenceEndpoints:
 # Category 5: Lessons Learned Endpoints
 # =============================================================================
 
+
 class TestLessonsEndpoints:
     """Lessons learned extraction"""
 
@@ -252,8 +263,8 @@ class TestLessonsEndpoints:
             json={
                 "page_id": TEST_CONFLUENCE_PAGE_ID,
                 "checklist": {"categories": []},
-                "max_siblings": 3
-            }
+                "max_siblings": 3,
+            },
         )
 
         assert response.status_code == 200
@@ -285,8 +296,8 @@ class TestLessonsEndpoints:
             json={
                 "page_id": "999999999",
                 "checklist": {"categories": []},
-                "max_siblings": 3
-            }
+                "max_siblings": 3,
+            },
         )
         # Should return skipped=true or error, not crash
         assert response.status_code in [200, 400, 404]
@@ -296,6 +307,7 @@ class TestLessonsEndpoints:
 # =============================================================================
 # Category 6: Publish Endpoints
 # =============================================================================
+
 
 class TestPublishEndpoints:
     """Publishing to Confluence"""
@@ -309,18 +321,22 @@ class TestPublishEndpoints:
                 "checklist": {
                     "project_name": "SmokeTest",
                     "customer": "Test Customer",
-                    "categories": [{
-                        "id": "test",
-                        "name": "Test Category",
-                        "items": [{
-                            "prompt_id": "t1",
-                            "question": "Test Question",
-                            "answer": "Test Answer",
-                            "status": "requirement_found"
-                        }]
-                    }]
-                }
-            }
+                    "categories": [
+                        {
+                            "id": "test",
+                            "name": "Test Category",
+                            "items": [
+                                {
+                                    "prompt_id": "t1",
+                                    "question": "Test Question",
+                                    "answer": "Test Answer",
+                                    "status": "requirement_found",
+                                }
+                            ],
+                        }
+                    ],
+                },
+            },
         )
 
         assert response.status_code == 200
@@ -333,6 +349,7 @@ class TestPublishEndpoints:
 # =============================================================================
 # Category 7: QA Endpoints
 # =============================================================================
+
 
 class TestQAEndpoints:
     """Quality assurance grading"""
@@ -351,15 +368,13 @@ class TestQAEndpoints:
 # Category 8: Ingest Endpoints
 # =============================================================================
 
+
 class TestIngestEndpoints:
     """File ingestion"""
 
     def test_ingest_no_files(self, client):
         """POST /api/ingest with no files should return 422"""
-        response = client.post(
-            "/api/ingest",
-            data={"project_name": "Test"}
-        )
+        response = client.post("/api/ingest", data={"project_name": "Test"})
         assert response.status_code == 422
         TestResults.passed += 1
 
@@ -373,7 +388,7 @@ class TestIngestEndpoints:
             response = client.post(
                 "/api/ingest",
                 files={"files": ("test.pdf", f, "application/pdf")},
-                data={"project_name": "IngestTest"}
+                data={"project_name": "IngestTest"},
             )
 
         assert response.status_code == 200
@@ -386,6 +401,7 @@ class TestIngestEndpoints:
 # =============================================================================
 # Summary Report
 # =============================================================================
+
 
 def pytest_sessionfinish(session, exitstatus):
     """Print summary after all tests"""

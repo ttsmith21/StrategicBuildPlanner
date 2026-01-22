@@ -212,9 +212,7 @@ async def generate_merge_preview(request: MergePreviewRequest):
 
     except Exception as e:
         logger.error(f"Failed to generate merge preview: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Merge preview failed: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Merge preview failed: {str(e)}")
 
 
 @router.post("/full-workflow")
@@ -357,7 +355,7 @@ async def resolve_conflicts(request: ResolveConflictsRequest):
             if isinstance(res, dict):
                 resolutions_data.append(res)
             else:
-                resolutions_data.append(res.dict() if hasattr(res, 'dict') else res)
+                resolutions_data.append(res.dict() if hasattr(res, "dict") else res)
 
         result = await quote_service.apply_resolutions(
             checklist=request.checklist,
@@ -385,6 +383,4 @@ async def resolve_conflicts(request: ResolveConflictsRequest):
 
     except Exception as e:
         logger.error(f"Failed to apply resolutions: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Resolution failed: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Resolution failed: {str(e)}")

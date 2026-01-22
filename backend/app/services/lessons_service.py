@@ -65,7 +65,9 @@ class LessonsService:
 
             ancestors = page.get("ancestors", [])
             if not ancestors:
-                return self._skipped_response("No parent pages found - cannot determine hierarchy")
+                return self._skipped_response(
+                    "No parent pages found - cannot determine hierarchy"
+                )
 
             # Identify family page (immediate parent) and customer page (grandparent)
             # Ancestors are ordered from root to immediate parent
@@ -89,23 +91,31 @@ class LessonsService:
 
             # If no siblings and no family content, skip
             if not sibling_pages and not family_page:
-                return self._skipped_response("No historical data available for this project")
+                return self._skipped_response(
+                    "No historical data available for this project"
+                )
 
             # Fetch content for analysis
             sibling_content = []
             for sibling in sibling_pages:
-                content = await self.confluence_service.get_page_content_text(sibling["id"])
+                content = await self.confluence_service.get_page_content_text(
+                    sibling["id"]
+                )
                 if content:
-                    sibling_content.append({
-                        "id": sibling["id"],
-                        "title": sibling["title"],
-                        "content": self._truncate_content(content),
-                    })
+                    sibling_content.append(
+                        {
+                            "id": sibling["id"],
+                            "title": sibling["title"],
+                            "content": self._truncate_content(content),
+                        }
+                    )
 
             family_content = None
             family_page_info = None
             if family_page:
-                content = await self.confluence_service.get_page_content_text(family_page["id"])
+                content = await self.confluence_service.get_page_content_text(
+                    family_page["id"]
+                )
                 if content:
                     family_content = self._truncate_content(content)
                     family_page_info = {
@@ -116,7 +126,9 @@ class LessonsService:
             customer_content = None
             customer_page_info = None
             if customer_page:
-                content = await self.confluence_service.get_page_content_text(customer_page["id"])
+                content = await self.confluence_service.get_page_content_text(
+                    customer_page["id"]
+                )
                 if content:
                     customer_content = self._truncate_content(content)
                     customer_page_info = {
@@ -131,13 +143,17 @@ class LessonsService:
             # Extract checklist categories
             checklist_categories = []
             if checklist and "categories" in checklist:
-                checklist_categories = [cat.get("name", "") for cat in checklist.get("categories", [])]
+                checklist_categories = [
+                    cat.get("name", "") for cat in checklist.get("categories", [])
+                ]
 
             # Build project context
             project_context = f"Project: {page.get('title', 'Unknown')}"
             if checklist:
                 project_context += f"\nCustomer: {checklist.get('customer', 'Unknown')}"
-                project_context += f"\nProject Name: {checklist.get('project_name', 'Unknown')}"
+                project_context += (
+                    f"\nProject Name: {checklist.get('project_name', 'Unknown')}"
+                )
 
             # Run AI analysis
             insights = await self._run_ai_analysis(
@@ -182,12 +198,13 @@ class LessonsService:
         """
         try:
             # Get all children of the family page
-            children = await self.confluence_service.get_space_hierarchy(parent_id=family_page_id)
+            children = await self.confluence_service.get_space_hierarchy(
+                parent_id=family_page_id
+            )
 
             # Filter out the current page and take top N
             siblings = [
-                child for child in children
-                if child.get("id") != current_page_id
+                child for child in children if child.get("id") != current_page_id
             ]
 
             # Sort by title (could sort by modified date if available)
