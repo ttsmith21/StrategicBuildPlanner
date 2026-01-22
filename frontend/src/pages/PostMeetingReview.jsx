@@ -15,6 +15,8 @@ import {
   AlertCircle,
   CheckCircle,
   ArrowRight,
+  RefreshCw,
+  Upload,
 } from 'lucide-react';
 
 import ConfluenceSearch from '../components/ConfluenceSearch';
@@ -28,6 +30,7 @@ import {
   gradeAPQPProcess,
   gradePlan,
   getConfluencePageText,
+  applyUpdatesToConfluence,
 } from '../services/api';
 
 const WORKFLOW_STEPS = [
@@ -53,6 +56,11 @@ export default function PostMeetingReview() {
   const [processGrade, setProcessGrade] = useState(null);
   const [planGrade, setPlanGrade] = useState(null);
   const [planContent, setPlanContent] = useState(null);
+
+  // Selection state for apply updates
+  const [selectedItems, setSelectedItems] = useState({ missing: [], discrepancies: [] });
+  const [isApplying, setIsApplying] = useState(false);
+  const [applySuccess, setApplySuccess] = useState(null);
 
   // Get step status for styling
   const getStepStatus = (stepId) => {
@@ -177,6 +185,107 @@ export default function PostMeetingReview() {
     setCurrentStep('summary');
   }, []);
 
+  // Handle selection change
+  const handleSelectionChange = useCallback((newSelection) => {
+    setSelectedItems(newSelection);
+    setApplySuccess(null);
+  }, []);
+
+  // Apply selected updates to Confluence
+  const handleApplyUpdates = useCallback(async () => {
+    const selectedMissing = selectedItems.missing.map(i => comparison.missing_items[i]);
+    const selectedDiscrepancies = selectedItems.discrepancies.map(i => comparison.discrepancies[i]);
+
+    if (selectedMissing.length === 0 && selectedDiscrepancies.length === 0) {
+      setError('Please select at least one item to add to the plan');
+      return;
+    }
+
+    setIsApplying(true);
+    setError(null);
+    setApplySuccess(null);
+
+    try {
+      const result = await applyUpdatesToConfluence(
+        selectedConfluencePage.id,
+        selectedMissing,
+        selectedDiscrepancies,
+        meetingType
+      );
+      setApplySuccess({
+        itemsAdded: result.items_added,
+        discrepanciesResolved: result.discrepancies_resolved,
+        pageUrl: result.page_url,
+      });
+      // Clear selection after successful apply
+      setSelectedItems({ missing: [], discrepancies: [] });
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to apply updates to plan');
+    } finally {
+      setIsApplying(false);
+    }
+  }, [selectedItems, comparison, selectedConfluencePage, meetingType]);
+
+  // Regrade comparison (re-run comparison after plan updates)
+  const handleRegradeComparison = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    setApplySuccess(null);
+
+    try {
+      const result = await compareTranscriptToPlan(
+        transcript,
+        selectedConfluencePage.id,
+        meetingType
+      );
+      setComparison(result);
+      setSelectedItems({ missing: [], discrepancies: [] });
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to re-compare transcript');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [transcript, selectedConfluencePage, meetingType]);
+
+  // Regrade process quality
+  const handleRegradeProcess = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const result = await gradeAPQPProcess(transcript, meetingType);
+      setProcessGrade(result);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to re-grade process');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [transcript, meetingType]);
+
+  // Regrade plan quality
+  const handleRegradePlan = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Refresh page content first
+      const content = await getConfluencePageText(selectedConfluencePage.id);
+      setPlanContent(content);
+
+      const mockPlanJson = {
+        project_name: selectedConfluencePage?.title || 'Unknown',
+        content: content,
+      };
+
+      const result = await gradePlan(mockPlanJson);
+      setPlanGrade(result);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to re-grade plan');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [selectedConfluencePage]);
+
   // Reset workflow
   const handleReset = useCallback(() => {
     setCurrentStep('select');
@@ -187,6 +296,8 @@ export default function PostMeetingReview() {
     setPlanGrade(null);
     setPlanContent(null);
     setError(null);
+    setSelectedItems({ missing: [], discrepancies: [] });
+    setApplySuccess(null);
   }, []);
 
   // Calculate word count for display
@@ -337,14 +448,90 @@ export default function PostMeetingReview() {
       {currentStep === 'compare' && (
         <div className="space-y-6">
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-2">
-              Step 3: Comparison Results
-            </h2>
-            <p className="text-sm text-gray-600 mb-6">
-              Review what was captured in the plan and what might be missing from the meeting discussion.
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Step 3: Comparison Results
+              </h2>
+              <button
+                onClick={handleRegradeComparison}
+                disabled={isLoading}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+              >
+                <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+                Regrade
+              </button>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">
+              Review what was captured in the plan and what might be missing. Select items to add to the plan.
             </p>
 
-            <TranscriptComparisonView comparison={comparison} />
+            {/* Apply Success Message */}
+            {applySuccess && (
+              <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="h-5 w-5 text-green-500" />
+                  <span className="font-medium text-green-800">
+                    Plan Updated Successfully
+                  </span>
+                </div>
+                <p className="text-sm text-green-700 mt-1">
+                  Added {applySuccess.itemsAdded} items, resolved {applySuccess.discrepanciesResolved} discrepancies.
+                  {applySuccess.pageUrl && (
+                    <a
+                      href={applySuccess.pageUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ml-2 underline hover:text-green-900"
+                    >
+                      View in Confluence
+                    </a>
+                  )}
+                </p>
+                <p className="text-sm text-green-600 mt-2">
+                  Click "Regrade" to re-run the comparison and verify improvements.
+                </p>
+              </div>
+            )}
+
+            <TranscriptComparisonView
+              comparison={comparison}
+              selectable={true}
+              selectedItems={selectedItems}
+              onSelectionChange={handleSelectionChange}
+            />
+
+            {/* Selection Summary & Apply Button */}
+            {(selectedItems.missing.length > 0 || selectedItems.discrepancies.length > 0) && (
+              <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-blue-800">
+                    <span className="font-medium">
+                      {selectedItems.missing.length + selectedItems.discrepancies.length} items selected
+                    </span>
+                    <span className="text-blue-600 ml-2">
+                      ({selectedItems.missing.length} missing, {selectedItems.discrepancies.length} discrepancies)
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleApplyUpdates}
+                    disabled={isApplying}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {isApplying ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Applying...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="h-4 w-4" />
+                        Apply Updates to Plan
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
 
             <button
               onClick={handleCompareContinue}
@@ -371,9 +558,19 @@ export default function PostMeetingReview() {
       {currentStep === 'grade-process' && (
         <div className="space-y-6">
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-2">
-              Step 4: Meeting Process Quality
-            </h2>
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Step 4: Meeting Process Quality
+              </h2>
+              <button
+                onClick={handleRegradeProcess}
+                disabled={isLoading}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+              >
+                <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+                Regrade
+              </button>
+            </div>
             <p className="text-sm text-gray-600 mb-6">
               Evaluate how effective the APQP meeting was based on the transcript.
             </p>
@@ -405,11 +602,21 @@ export default function PostMeetingReview() {
       {currentStep === 'grade-plan' && (
         <div className="space-y-6">
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-2">
-              Step 5: Plan Output Quality
-            </h2>
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Step 5: Plan Output Quality
+              </h2>
+              <button
+                onClick={handleRegradePlan}
+                disabled={isLoading}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+              >
+                <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+                Regrade
+              </button>
+            </div>
             <p className="text-sm text-gray-600 mb-6">
-              Evaluate the quality of the Strategic Build Plan itself.
+              Evaluate the quality of the Strategic Build Plan itself. After making improvements to the plan in Confluence, click Regrade to see updated scores.
             </p>
 
             {planGrade && (

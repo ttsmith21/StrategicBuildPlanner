@@ -432,4 +432,23 @@ export async function getProcessGradingRubric() {
   return response.data;
 }
 
+/**
+ * Apply updates to a Confluence page based on selected missing items and discrepancies
+ * @param {string} confluencePageId - Confluence page ID to update
+ * @param {object[]} missingItems - Selected missing items to add
+ * @param {object[]} discrepancies - Selected discrepancies to resolve
+ * @param {string} meetingType - Type of meeting for context
+ * @returns {object} - { success, page_id, page_url, items_added, discrepancies_resolved, updated_at }
+ */
+export async function applyUpdatesToConfluence(confluencePageId, missingItems, discrepancies, meetingType = 'kickoff') {
+  const response = await api.post('/api/review/apply-updates', {
+    confluence_page_id: confluencePageId,
+    missing_items: missingItems,
+    discrepancies: discrepancies,
+    meeting_type: meetingType,
+  });
+
+  return response.data;
+}
+
 export default api;

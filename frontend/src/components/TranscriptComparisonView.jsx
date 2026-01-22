@@ -1,9 +1,10 @@
 /**
  * TranscriptComparisonView Component
  * Displays comparison results between meeting transcript and plan
+ * Supports selecting items to add to the plan
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import {
   AlertTriangle,
@@ -14,6 +15,8 @@ import {
   AlertCircle,
   FileText,
   Target,
+  Square,
+  CheckSquare,
 } from 'lucide-react';
 
 // Coverage score gauge component
@@ -81,8 +84,8 @@ CoverageGauge.propTypes = {
   score: PropTypes.number.isRequired,
 };
 
-// Missing item card component
-function MissingItemCard({ item }) {
+// Missing item card component with selection
+function MissingItemCard({ item, index, isSelected, onToggleSelect, selectable }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const getImportanceStyle = (importance) => {
@@ -112,8 +115,20 @@ function MissingItemCard({ item }) {
   };
 
   return (
-    <div className={`border rounded-lg p-3 ${getImportanceStyle(item.importance)}`}>
+    <div className={`border rounded-lg p-3 ${getImportanceStyle(item.importance)} ${isSelected ? 'ring-2 ring-primary-500' : ''}`}>
       <div className="flex items-start gap-2">
+        {selectable && (
+          <button
+            onClick={() => onToggleSelect(index)}
+            className="mt-0.5 flex-shrink-0 text-current hover:opacity-80"
+          >
+            {isSelected ? (
+              <CheckSquare className="h-5 w-5" />
+            ) : (
+              <Square className="h-5 w-5" />
+            )}
+          </button>
+        )}
         <div className="mt-0.5">{getCategoryIcon(item.category)}</div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
@@ -153,15 +168,31 @@ MissingItemCard.propTypes = {
     transcript_excerpt: PropTypes.string,
     importance: PropTypes.string.isRequired,
   }).isRequired,
+  index: PropTypes.number.isRequired,
+  isSelected: PropTypes.bool,
+  onToggleSelect: PropTypes.func,
+  selectable: PropTypes.bool,
 };
 
-// Discrepancy card component
-function DiscrepancyCard({ discrepancy }) {
+// Discrepancy card component with selection
+function DiscrepancyCard({ discrepancy, index, isSelected, onToggleSelect, selectable }) {
   return (
     <div className={`border rounded-lg p-3 ${
       discrepancy.severity === 'major' ? 'bg-red-50 border-red-200' : 'bg-yellow-50 border-yellow-200'
-    }`}>
+    } ${isSelected ? 'ring-2 ring-primary-500' : ''}`}>
       <div className="flex items-start gap-2">
+        {selectable && (
+          <button
+            onClick={() => onToggleSelect(index)}
+            className="mt-0.5 flex-shrink-0 text-gray-600 hover:text-gray-800"
+          >
+            {isSelected ? (
+              <CheckSquare className="h-5 w-5" />
+            ) : (
+              <Square className="h-5 w-5" />
+            )}
+          </button>
+        )}
         <AlertTriangle className={`h-5 w-5 flex-shrink-0 ${
           discrepancy.severity === 'major' ? 'text-red-500' : 'text-yellow-500'
         }`} />
@@ -197,6 +228,10 @@ DiscrepancyCard.propTypes = {
     plan_says: PropTypes.string.isRequired,
     severity: PropTypes.string.isRequired,
   }).isRequired,
+  index: PropTypes.number.isRequired,
+  isSelected: PropTypes.bool,
+  onToggleSelect: PropTypes.func,
+  selectable: PropTypes.bool,
 };
 
 // Captured item card component
@@ -228,7 +263,12 @@ CapturedItemCard.propTypes = {
 };
 
 // Main component
-export default function TranscriptComparisonView({ comparison }) {
+export default function TranscriptComparisonView({
+  comparison,
+  selectable = false,
+  selectedItems = { missing: [], discrepancies: [] },
+  onSelectionChange,
+}) {
   const [activeSection, setActiveSection] = useState('missing');
 
   if (!comparison) {
@@ -241,6 +281,48 @@ export default function TranscriptComparisonView({ comparison }) {
   const criticalCount = missing_items.filter(i => i.importance === 'critical').length;
   const majorDiscrepancyCount = discrepancies.filter(d => d.severity === 'major').length;
 
+  // Selection handlers
+  const handleToggleMissing = (index) => {
+    if (!onSelectionChange) return;
+    const newSelection = selectedItems.missing.includes(index)
+      ? selectedItems.missing.filter(i => i !== index)
+      : [...selectedItems.missing, index];
+    onSelectionChange({ ...selectedItems, missing: newSelection });
+  };
+
+  const handleToggleDiscrepancy = (index) => {
+    if (!onSelectionChange) return;
+    const newSelection = selectedItems.discrepancies.includes(index)
+      ? selectedItems.discrepancies.filter(i => i !== index)
+      : [...selectedItems.discrepancies, index];
+    onSelectionChange({ ...selectedItems, discrepancies: newSelection });
+  };
+
+  const handleSelectAllMissing = () => {
+    if (!onSelectionChange) return;
+    const allIndices = missing_items.map((_, i) => i);
+    onSelectionChange({ ...selectedItems, missing: allIndices });
+  };
+
+  const handleDeselectAllMissing = () => {
+    if (!onSelectionChange) return;
+    onSelectionChange({ ...selectedItems, missing: [] });
+  };
+
+  const handleSelectAllDiscrepancies = () => {
+    if (!onSelectionChange) return;
+    const allIndices = discrepancies.map((_, i) => i);
+    onSelectionChange({ ...selectedItems, discrepancies: allIndices });
+  };
+
+  const handleDeselectAllDiscrepancies = () => {
+    if (!onSelectionChange) return;
+    onSelectionChange({ ...selectedItems, discrepancies: [] });
+  };
+
+  // Calculate total selected
+  const totalSelected = selectedItems.missing.length + selectedItems.discrepancies.length;
+
   return (
     <div className="space-y-6">
       {/* Summary header */}
@@ -252,7 +334,7 @@ export default function TranscriptComparisonView({ comparison }) {
             <p className="text-sm text-gray-600 mb-4">{summary}</p>
 
             {/* Quick stats */}
-            <div className="flex gap-4">
+            <div className="flex flex-wrap gap-3">
               <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm ${
                 criticalCount > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'
               }`}>
@@ -273,6 +355,14 @@ export default function TranscriptComparisonView({ comparison }) {
                 <span>{captured_items.length} captured</span>
               </div>
             </div>
+
+            {/* Selection indicator */}
+            {selectable && totalSelected > 0 && (
+              <div className="mt-4 flex items-center gap-2 text-sm text-primary-600">
+                <CheckSquare className="h-4 w-4" />
+                <span>{totalSelected} item(s) selected to add to plan</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -288,6 +378,11 @@ export default function TranscriptComparisonView({ comparison }) {
           }`}
         >
           Missing Items ({missing_items.length})
+          {selectable && selectedItems.missing.length > 0 && (
+            <span className="ml-1 text-xs bg-primary-100 text-primary-700 px-1.5 py-0.5 rounded-full">
+              {selectedItems.missing.length}
+            </span>
+          )}
         </button>
         <button
           onClick={() => setActiveSection('discrepancies')}
@@ -298,6 +393,11 @@ export default function TranscriptComparisonView({ comparison }) {
           }`}
         >
           Discrepancies ({discrepancies.length})
+          {selectable && selectedItems.discrepancies.length > 0 && (
+            <span className="ml-1 text-xs bg-primary-100 text-primary-700 px-1.5 py-0.5 rounded-full">
+              {selectedItems.discrepancies.length}
+            </span>
+          )}
         </button>
         <button
           onClick={() => setActiveSection('captured')}
@@ -321,9 +421,36 @@ export default function TranscriptComparisonView({ comparison }) {
                 <p>All items from the transcript are captured in the plan!</p>
               </div>
             ) : (
-              missing_items.map((item, index) => (
-                <MissingItemCard key={index} item={item} />
-              ))
+              <>
+                {/* Select all / deselect all buttons */}
+                {selectable && missing_items.length > 0 && (
+                  <div className="flex items-center gap-2 pb-2">
+                    <button
+                      onClick={handleSelectAllMissing}
+                      className="text-xs text-primary-600 hover:text-primary-700"
+                    >
+                      Select all
+                    </button>
+                    <span className="text-gray-300">|</span>
+                    <button
+                      onClick={handleDeselectAllMissing}
+                      className="text-xs text-gray-500 hover:text-gray-700"
+                    >
+                      Deselect all
+                    </button>
+                  </div>
+                )}
+                {missing_items.map((item, index) => (
+                  <MissingItemCard
+                    key={index}
+                    item={item}
+                    index={index}
+                    isSelected={selectedItems.missing.includes(index)}
+                    onToggleSelect={handleToggleMissing}
+                    selectable={selectable}
+                  />
+                ))}
+              </>
             )}
           </>
         )}
@@ -336,9 +463,36 @@ export default function TranscriptComparisonView({ comparison }) {
                 <p>No discrepancies found between transcript and plan!</p>
               </div>
             ) : (
-              discrepancies.map((discrepancy, index) => (
-                <DiscrepancyCard key={index} discrepancy={discrepancy} />
-              ))
+              <>
+                {/* Select all / deselect all buttons */}
+                {selectable && discrepancies.length > 0 && (
+                  <div className="flex items-center gap-2 pb-2">
+                    <button
+                      onClick={handleSelectAllDiscrepancies}
+                      className="text-xs text-primary-600 hover:text-primary-700"
+                    >
+                      Select all
+                    </button>
+                    <span className="text-gray-300">|</span>
+                    <button
+                      onClick={handleDeselectAllDiscrepancies}
+                      className="text-xs text-gray-500 hover:text-gray-700"
+                    >
+                      Deselect all
+                    </button>
+                  </div>
+                )}
+                {discrepancies.map((discrepancy, index) => (
+                  <DiscrepancyCard
+                    key={index}
+                    discrepancy={discrepancy}
+                    index={index}
+                    isSelected={selectedItems.discrepancies.includes(index)}
+                    onToggleSelect={handleToggleDiscrepancy}
+                    selectable={selectable}
+                  />
+                ))}
+              </>
             )}
           </>
         )}
@@ -370,4 +524,10 @@ TranscriptComparisonView.propTypes = {
     captured_items: PropTypes.arrayOf(PropTypes.object).isRequired,
     summary: PropTypes.string.isRequired,
   }),
+  selectable: PropTypes.bool,
+  selectedItems: PropTypes.shape({
+    missing: PropTypes.arrayOf(PropTypes.number),
+    discrepancies: PropTypes.arrayOf(PropTypes.number),
+  }),
+  onSelectionChange: PropTypes.func,
 };

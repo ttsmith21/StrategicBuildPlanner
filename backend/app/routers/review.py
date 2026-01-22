@@ -11,6 +11,9 @@ from fastapi import APIRouter, HTTPException
 
 from openai import OpenAI
 
+from pydantic import BaseModel, Field
+from typing import List, Optional
+
 from app.models.responses import (
     CompareRequest,
     ComparisonResponse,
@@ -21,6 +24,25 @@ from app.models.responses import (
     ProcessGradeResponse,
     ProcessDimensionScores,
 )
+
+
+# Request/Response models for apply updates
+class ApplyUpdatesRequest(BaseModel):
+    """Request to apply updates to a Confluence page"""
+    confluence_page_id: str = Field(..., description="Confluence page ID to update")
+    missing_items: List[dict] = Field(default_factory=list, description="Missing items to add")
+    discrepancies: List[dict] = Field(default_factory=list, description="Discrepancies to resolve")
+    meeting_type: str = Field(default="kickoff", description="Meeting type for context")
+
+
+class ApplyUpdatesResponse(BaseModel):
+    """Response after applying updates"""
+    success: bool
+    page_id: str
+    page_url: str
+    items_added: int
+    discrepancies_resolved: int
+    updated_at: datetime
 from app.prompts.comparison_prompt import (
     COMPARISON_SYSTEM_PROMPT,
     build_comparison_prompt,
@@ -95,9 +117,9 @@ async def compare_transcript_to_plan(request: CompareRequest) -> ComparisonRespo
             meeting_type=request.meeting_type,
         )
 
-        # Call OpenAI
+        # Call OpenAI - use gpt-4o for review (gpt-5.2 has compatibility issues)
         client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        model = os.getenv("OPENAI_MODEL_PLAN", "gpt-4o-2024-08-06")
+        model = "gpt-4o"
 
         response = client.chat.completions.create(
             model=model,
@@ -105,12 +127,16 @@ async def compare_transcript_to_plan(request: CompareRequest) -> ComparisonRespo
                 {"role": "system", "content": COMPARISON_SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
             ],
-            response_format={"type": "json_object"},
-            max_tokens=4000,
         )
 
-        # Parse response
-        comparison_data = json.loads(response.choices[0].message.content)
+        # Parse response - extract JSON from the response
+        content = response.choices[0].message.content
+        # Handle potential markdown code blocks
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0].strip()
+        comparison_data = json.loads(content)
 
         # Build response objects
         missing_items = [
@@ -212,9 +238,9 @@ async def grade_apqp_process(request: ProcessGradeRequest) -> ProcessGradeRespon
             expected_attendees=request.expected_attendees,
         )
 
-        # Call OpenAI
+        # Call OpenAI - use gpt-4o for review (gpt-5.2 has compatibility issues)
         client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        model = os.getenv("OPENAI_MODEL_PLAN", "gpt-4o-2024-08-06")
+        model = "gpt-4o"
 
         response = client.chat.completions.create(
             model=model,
@@ -222,12 +248,16 @@ async def grade_apqp_process(request: ProcessGradeRequest) -> ProcessGradeRespon
                 {"role": "system", "content": PROCESS_GRADE_SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
             ],
-            response_format={"type": "json_object"},
-            max_tokens=4000,
         )
 
-        # Parse response
-        grade_data = json.loads(response.choices[0].message.content)
+        # Parse response - extract JSON from the response
+        content = response.choices[0].message.content
+        # Handle potential markdown code blocks
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0].strip()
+        grade_data = json.loads(content)
 
         # Extract dimension scores
         dim_scores = grade_data.get("dimension_scores", {})
@@ -277,6 +307,130 @@ async def grade_apqp_process(request: ProcessGradeRequest) -> ProcessGradeRespon
         logger.error(f"Process grading failed: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500, detail=f"Failed to grade process: {str(e)}"
+        )
+
+
+@router.post("/apply-updates", response_model=ApplyUpdatesResponse)
+async def apply_updates_to_plan(request: ApplyUpdatesRequest) -> ApplyUpdatesResponse:
+    """
+    Apply selected updates to a Confluence page.
+
+    Takes missing items and discrepancies identified during comparison
+    and adds them to the Confluence page in the appropriate sections.
+
+    **Request:**
+    - confluence_page_id: Page ID to update
+    - missing_items: List of missing items to add (from comparison)
+    - discrepancies: List of discrepancies to resolve (from comparison)
+    - meeting_type: Meeting type for context
+
+    **Returns:**
+    - success: Whether the update was successful
+    - page_id: The updated page ID
+    - page_url: URL to the updated page
+    - items_added: Number of items added
+    - discrepancies_resolved: Number of discrepancies addressed
+    """
+    try:
+        logger.info(f"Applying updates to Confluence page {request.confluence_page_id}")
+
+        confluence = ConfluenceService()
+
+        # Get current page content
+        page = confluence.get_page(request.confluence_page_id)
+        if not page:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Confluence page {request.confluence_page_id} not found"
+            )
+
+        current_content = page.get("body", {}).get("storage", {}).get("value", "")
+
+        # Build update content using AI
+        if request.missing_items or request.discrepancies:
+            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            model = os.getenv("OPENAI_MODEL_PLAN", "gpt-4o-2024-08-06")
+
+            update_prompt = f"""You are updating a Confluence page to add missing items from a meeting.
+
+**Current Page Content:**
+{current_content}
+
+**Missing Items to Add:**
+{json.dumps(request.missing_items, indent=2) if request.missing_items else "None"}
+
+**Discrepancies to Resolve (use transcript version):**
+{json.dumps(request.discrepancies, indent=2) if request.discrepancies else "None"}
+
+**Instructions:**
+1. Return the COMPLETE updated page content in Confluence storage format (HTML)
+2. Add missing items in appropriate sections based on their category:
+   - decision: Add to Decisions or Key Agreements section
+   - action_item: Add to Action Items or Next Steps section
+   - requirement: Add to Requirements or Specifications section
+   - risk: Add to Risks or Concerns section
+   - question: Add to Open Questions section
+3. For discrepancies, update the text to match the transcript version
+4. Preserve all existing content and formatting
+5. Use proper Confluence HTML tags (p, ul, li, h2, h3, table, etc.)
+6. Add items with clear bullet points showing they came from meeting review
+
+Return ONLY the complete HTML content, no explanation."""
+
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "user", "content": update_prompt},
+                ],
+            )
+
+            updated_content = response.choices[0].message.content.strip()
+
+            # Clean up any markdown code blocks if present
+            if updated_content.startswith("```"):
+                lines = updated_content.split("\n")
+                updated_content = "\n".join(lines[1:-1] if lines[-1] == "```" else lines[1:])
+
+            # Update the page
+            result = confluence.update_page(
+                page_id=request.confluence_page_id,
+                title=page.get("title", "Updated Page"),
+                content=updated_content,
+            )
+
+            page_url = f"{confluence.base_url}/pages/viewpage.action?pageId={request.confluence_page_id}"
+
+            logger.info(
+                f"Applied updates: {len(request.missing_items)} items added, "
+                f"{len(request.discrepancies)} discrepancies resolved"
+            )
+
+            return ApplyUpdatesResponse(
+                success=True,
+                page_id=request.confluence_page_id,
+                page_url=page_url,
+                items_added=len(request.missing_items),
+                discrepancies_resolved=len(request.discrepancies),
+                updated_at=datetime.utcnow(),
+            )
+        else:
+            # Nothing to update
+            page_url = f"{confluence.base_url}/pages/viewpage.action?pageId={request.confluence_page_id}"
+            return ApplyUpdatesResponse(
+                success=True,
+                page_id=request.confluence_page_id,
+                page_url=page_url,
+                items_added=0,
+                discrepancies_resolved=0,
+                updated_at=datetime.utcnow(),
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to apply updates: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500, detail=f"Failed to apply updates: {str(e)}"
         )
 
 
