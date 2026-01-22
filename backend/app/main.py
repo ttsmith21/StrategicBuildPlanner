@@ -20,7 +20,18 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Import routers
-from app.routers import ingest, draft, publish, meeting, qa, checklist, confluence, quote, lessons
+from app.routers import (
+    ingest,
+    draft,
+    publish,
+    meeting,
+    qa,
+    checklist,
+    confluence,
+    quote,
+    lessons,
+    review,
+)
 
 app = FastAPI(
     title="Strategic Build Planner API",
@@ -69,6 +80,7 @@ async def root():
             "publish": "/api/publish",
             "meeting": "/api/meeting/apply",
             "qa": "/api/qa/grade",
+            "review": "/api/review/compare",
         },
     }
 
@@ -83,6 +95,7 @@ app.include_router(checklist.router, tags=["checklist"])
 app.include_router(confluence.router, tags=["confluence"])
 app.include_router(quote.router, tags=["quote"])
 app.include_router(lessons.router, tags=["lessons"])
+app.include_router(review.router, prefix="/api/review", tags=["review"])
 
 if __name__ == "__main__":
     import uvicorn

@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { FileSearch, FileCheck } from 'lucide-react';
 import PreMeetingPrep from './pages/PreMeetingPrep';
-import PlanBuilder from './pages/PlanBuilder';
+import PostMeetingReview from './pages/PostMeetingReview';
 
 const PHASES = [
   {
@@ -19,9 +19,9 @@ const PHASES = [
   {
     id: 'phase2',
     label: 'Phase 2: Post-Meeting Review',
-    description: 'Analyze transcript & grade',
+    description: 'Review transcript & grade quality',
     icon: FileCheck,
-    component: PlanBuilder,
+    component: PostMeetingReview,
   },
 ];
 
@@ -58,7 +58,11 @@ function App() {
       </div>
 
       {/* Active Phase Content */}
-      <ActiveComponent />
+      <main className="flex-1 bg-gray-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <ActiveComponent />
+        </div>
+      </main>
     </div>
   );
 }

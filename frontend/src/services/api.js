@@ -385,4 +385,51 @@ export async function extractLessonsLearned(pageId, checklist, maxSiblings = 3) 
   return response.data;
 }
 
+// ============================================================================
+// Post-Meeting Review API
+// ============================================================================
+
+/**
+ * Compare meeting transcript against a Confluence page/plan
+ * @param {string} transcript - Meeting transcript text
+ * @param {string} confluencePageId - Confluence page ID to compare against
+ * @param {string} meetingType - Type of meeting (kickoff, review, customer, internal)
+ * @returns {object} - { coverage_score, missing_items, discrepancies, captured_items, summary }
+ */
+export async function compareTranscriptToPlan(transcript, confluencePageId, meetingType = 'kickoff') {
+  const response = await api.post('/api/review/compare', {
+    transcript,
+    confluence_page_id: confluencePageId,
+    meeting_type: meetingType,
+  });
+
+  return response.data;
+}
+
+/**
+ * Grade APQP meeting process quality based on transcript
+ * @param {string} transcript - Meeting transcript text
+ * @param {string} meetingType - Type of meeting (kickoff, review, customer, internal)
+ * @param {string[]} expectedAttendees - Optional list of expected attendee names
+ * @returns {object} - { overall_score, dimension_scores, grade, strengths, improvements, topics_discussed, topics_missing }
+ */
+export async function gradeAPQPProcess(transcript, meetingType = 'kickoff', expectedAttendees = null) {
+  const response = await api.post('/api/review/grade-process', {
+    transcript,
+    meeting_type: meetingType,
+    expected_attendees: expectedAttendees,
+  });
+
+  return response.data;
+}
+
+/**
+ * Get the APQP process grading rubric
+ * @returns {object} - Rubric with dimensions and scoring criteria
+ */
+export async function getProcessGradingRubric() {
+  const response = await api.get('/api/review/process-rubric');
+  return response.data;
+}
+
 export default api;
