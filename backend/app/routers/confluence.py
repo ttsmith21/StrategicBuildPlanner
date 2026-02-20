@@ -64,6 +64,22 @@ class PageContent(BaseModel):
     version: int
 
 
+class CreateFamilyRequest(BaseModel):
+    """Request to create a Family of Parts page"""
+
+    customer_page_id: str
+    family_name: str
+    project_page_id: Optional[str] = None  # If set, reparent project under new family
+    space_key: Optional[str] = None
+
+
+class CreateFamilyResponse(BaseModel):
+    """Response after creating a Family of Parts page"""
+
+    family_page: PageSummary
+    project_moved: bool = False
+
+
 # ============================================================================
 # Search Endpoints
 # ============================================================================
@@ -247,4 +263,63 @@ async def get_page_context(page_id: str):
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to get page context: {str(e)}"
+        )
+
+
+# ============================================================================
+# Family of Parts Management
+# ============================================================================
+
+
+@router.post("/family", response_model=CreateFamilyResponse)
+async def create_family_page(request: CreateFamilyRequest):
+    """
+    Create a Family of Parts page under a customer page.
+
+    Uses the Confluence Cloud content template named "Family..." if one
+    exists in the space.  Optionally moves an existing project page to be
+    a child of the new family page.
+
+    **Use case:**
+    When a project page sits directly under a Customer page without the
+    intermediate Family of Parts grouping page.
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    try:
+        family_result = await confluence_service.create_family_page_from_template(
+            customer_page_id=request.customer_page_id,
+            family_name=request.family_name,
+            space_key=request.space_key,
+        )
+
+        project_moved = False
+
+        if request.project_page_id:
+            try:
+                await confluence_service.move_page(
+                    page_id=request.project_page_id,
+                    new_parent_id=family_result["id"],
+                )
+                project_moved = True
+            except Exception as e:
+                logger.warning(f"Created family page but failed to move project: {e}")
+
+        return CreateFamilyResponse(
+            family_page=PageSummary(
+                id=family_result["id"],
+                title=family_result["title"],
+                url=family_result["url"],
+            ),
+            project_moved=project_moved,
+        )
+
+    except ValueError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create family page: {str(e)}",
         )

@@ -29,20 +29,28 @@ from app.models.responses import (
 # Request/Response models for apply updates
 class ApplyUpdatesRequest(BaseModel):
     """Request to apply updates to a Confluence page"""
+
     confluence_page_id: str = Field(..., description="Confluence page ID to update")
-    missing_items: List[dict] = Field(default_factory=list, description="Missing items to add")
-    discrepancies: List[dict] = Field(default_factory=list, description="Discrepancies to resolve")
+    missing_items: List[dict] = Field(
+        default_factory=list, description="Missing items to add"
+    )
+    discrepancies: List[dict] = Field(
+        default_factory=list, description="Discrepancies to resolve"
+    )
     meeting_type: str = Field(default="kickoff", description="Meeting type for context")
 
 
 class ApplyUpdatesResponse(BaseModel):
     """Response after applying updates"""
+
     success: bool
     page_id: str
     page_url: str
     items_added: int
     discrepancies_resolved: int
     updated_at: datetime
+
+
 from app.prompts.comparison_prompt import (
     COMPARISON_SYSTEM_PROMPT,
     build_comparison_prompt,
@@ -102,7 +110,9 @@ async def compare_transcript_to_plan(request: CompareRequest) -> ComparisonRespo
 
         # Get Confluence page content
         confluence = ConfluenceService()
-        page_content = confluence.get_page_content_text(request.confluence_page_id)
+        page_content = await confluence.get_page_content_text(
+            request.confluence_page_id
+        )
 
         if not page_content:
             raise HTTPException(
@@ -337,11 +347,11 @@ async def apply_updates_to_plan(request: ApplyUpdatesRequest) -> ApplyUpdatesRes
         confluence = ConfluenceService()
 
         # Get current page content
-        page = confluence.get_page(request.confluence_page_id)
+        page = await confluence.get_page(request.confluence_page_id)
         if not page:
             raise HTTPException(
                 status_code=404,
-                detail=f"Confluence page {request.confluence_page_id} not found"
+                detail=f"Confluence page {request.confluence_page_id} not found",
             )
 
         current_content = page.get("body", {}).get("storage", {}).get("value", "")
@@ -389,16 +399,21 @@ Return ONLY the complete HTML content, no explanation."""
             # Clean up any markdown code blocks if present
             if updated_content.startswith("```"):
                 lines = updated_content.split("\n")
-                updated_content = "\n".join(lines[1:-1] if lines[-1] == "```" else lines[1:])
+                updated_content = "\n".join(
+                    lines[1:-1] if lines[-1] == "```" else lines[1:]
+                )
 
             # Update the page
-            result = confluence.update_page(
+            result = await confluence.update_page(
                 page_id=request.confluence_page_id,
                 title=page.get("title", "Updated Page"),
                 content=updated_content,
             )
 
-            page_url = f"{confluence.base_url}/pages/viewpage.action?pageId={request.confluence_page_id}"
+            page_url = result.get(
+                "url",
+                f"{confluence.url}/wiki/pages/viewpage.action?pageId={request.confluence_page_id}",
+            )
 
             logger.info(
                 f"Applied updates: {len(request.missing_items)} items added, "
@@ -415,7 +430,7 @@ Return ONLY the complete HTML content, no explanation."""
             )
         else:
             # Nothing to update
-            page_url = f"{confluence.base_url}/pages/viewpage.action?pageId={request.confluence_page_id}"
+            page_url = f"{confluence.url}/wiki/pages/viewpage.action?pageId={request.confluence_page_id}"
             return ApplyUpdatesResponse(
                 success=True,
                 page_id=request.confluence_page_id,
