@@ -33,6 +33,8 @@ import {
   generateMergePreview,
   resolveConflicts,
   extractLessonsLearned,
+  createFamilyPage,
+  getConfluencePage,
 } from '../services/api';
 
 const WORKFLOW_STEPS = [
@@ -423,6 +425,34 @@ export default function PreMeetingPrep() {
       setHierarchyWarning(null);
     }
   }, []);
+
+  // State for family name input in hierarchy warning
+  const [familyNameInput, setFamilyNameInput] = useState('General');
+  const [creatingFamily, setCreatingFamily] = useState(false);
+
+  // Handle creating a Family of Parts page when one is missing
+  const handleCreateFamilyPage = useCallback(async () => {
+    if (!hierarchyWarning || !familyNameInput.trim()) return;
+
+    setCreatingFamily(true);
+    setError(null);
+
+    try {
+      await createFamilyPage(
+        hierarchyWarning.customerPageId,
+        familyNameInput.trim(),
+        hierarchyWarning.projectPageId,
+      );
+
+      // Refresh the selected page to pick up new ancestors
+      const updatedPage = await getConfluencePage(hierarchyWarning.projectPageId);
+      handleConfluencePageSelect(updatedPage);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to create Family of Parts page');
+    } finally {
+      setCreatingFamily(false);
+    }
+  }, [hierarchyWarning, familyNameInput, handleConfluencePageSelect]);
 
   // Handle publish to Confluence
   const handlePublish = useCallback(async () => {
@@ -986,6 +1016,41 @@ export default function PreMeetingPrep() {
                   <div className="mt-3 flex items-center gap-2 text-sm text-green-700">
                     <CheckCircle className="h-4 w-4" />
                     Will publish under: <strong>{selectedConfluencePage.title}</strong>
+                  </div>
+                )}
+
+                {hierarchyWarning?.type === 'missing_family' && (
+                  <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                    <div className="flex items-center gap-2 text-amber-700">
+                      <AlertCircle className="h-4 w-4" />
+                      <span className="text-sm font-medium">Missing Family of Parts page</span>
+                    </div>
+                    <p className="text-sm text-amber-600 mt-1">
+                      This project is directly under &ldquo;{hierarchyWarning.customerName}&rdquo;
+                      without a Family of Parts grouping page.
+                    </p>
+                    <div className="mt-2 flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={familyNameInput}
+                        onChange={(e) => setFamilyNameInput(e.target.value)}
+                        placeholder="Family name (e.g., Pumps)"
+                        className="flex-1 px-3 py-1.5 text-sm border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400"
+                        disabled={creatingFamily}
+                      />
+                      <button
+                        onClick={handleCreateFamilyPage}
+                        disabled={creatingFamily || !familyNameInput.trim()}
+                        className="px-3 py-1.5 text-sm font-medium text-amber-700 bg-amber-100 rounded-lg hover:bg-amber-200 border border-amber-300 disabled:opacity-50"
+                      >
+                        {creatingFamily ? (
+                          <span className="flex items-center gap-1">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            Creating...
+                          </span>
+                        ) : 'Create & Move'}
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

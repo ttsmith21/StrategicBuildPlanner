@@ -200,6 +200,24 @@ export async function updateTemplateWithChecklist(checklist, pageId, quoteAssump
   return response.data;
 }
 
+/**
+ * Create a Family of Parts page under a customer page using the Confluence template.
+ * Optionally moves an existing project page under the new family page.
+ * @param {string} customerPageId - Customer page ID (parent)
+ * @param {string} familyName - Name for the family page
+ * @param {string|null} projectPageId - Optional project page to move under the family
+ * @returns {Promise<object>} - { family_page: { id, title, url }, project_moved: bool }
+ */
+export async function createFamilyPage(customerPageId, familyName, projectPageId = null) {
+  const response = await api.post('/api/confluence/family', {
+    customer_page_id: customerPageId,
+    family_name: familyName,
+    project_page_id: projectPageId,
+  });
+
+  return response.data;
+}
+
 // ============================================================================
 // Confluence Navigation API
 // ============================================================================

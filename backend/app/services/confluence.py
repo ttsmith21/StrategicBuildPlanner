@@ -1231,6 +1231,120 @@ class ConfluenceService:
             logger.error(f"Failed to get page with ancestors: {str(e)}")
             return None
 
+    async def create_family_page_from_template(
+        self,
+        customer_page_id: str,
+        family_name: str,
+        space_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Create a Family of Parts page using the Confluence Cloud template.
+
+        Looks up the space's content templates for one whose name contains
+        "family" (case-insensitive), fetches its body, and creates a new
+        page under the given customer page.  Adds the standard
+        ``family-of-parts-{slug}`` label so the page can be discovered
+        later by :meth:`find_family_of_parts_page`.
+
+        Args:
+            customer_page_id: ID of the customer page (parent).
+            family_name: Display name for the family (used as page title).
+            space_key: Space key (defaults to configured space).
+
+        Returns:
+            Dict with page id, title, url.
+        """
+        self._ensure_client()
+        space = space_key or self.space_key
+
+        # --- Resolve template body -----------------------------------
+        template_body = ""
+        try:
+            templates = self.client.get_content_templates(space)
+            # templates may be a list or dict with "results" key
+            template_list = (
+                templates
+                if isinstance(templates, list)
+                else templates.get("results", [])
+            )
+            family_template = None
+            for t in template_list:
+                tname = (t.get("name") or t.get("title") or "").lower()
+                if "family" in tname:
+                    family_template = t
+                    break
+
+            if family_template:
+                tid = family_template.get("templateId") or family_template.get("id")
+                if tid:
+                    full_template = self.client.get_content_template(tid)
+                    template_body = (
+                        full_template.get("body", {})
+                        .get("storage", {})
+                        .get("value", "")
+                    )
+                    logger.info(
+                        f"Using Confluence template '{family_template.get('name')}' for family page"
+                    )
+            if not template_body:
+                logger.warning(
+                    "Family template not found in space, creating page with default content"
+                )
+        except Exception as e:
+            logger.warning(f"Could not load Confluence templates: {e}")
+
+        # Fallback content if no template was found / loaded
+        if not template_body:
+            template_body = (
+                "<p>This page groups all projects in the "
+                f"<strong>{self._escape_html(family_name)}</strong> family.</p>"
+            )
+
+        # --- Create the page ------------------------------------------
+        result = await self.create_page(
+            title=family_name,
+            content=template_body,
+            parent_id=customer_page_id,
+            space_key=space,
+        )
+
+        # --- Add the family-of-parts label ----------------------------
+        slug = self._to_slug(family_name)
+        label = f"family-of-parts-{slug}"
+        try:
+            self.client.set_page_label(result["id"], label)
+            logger.info(f"Added label '{label}' to family page {result['id']}")
+        except Exception as e:
+            logger.warning(f"Failed to add label to family page: {e}")
+
+        return result
+
+    async def move_page(
+        self,
+        page_id: str,
+        new_parent_id: str,
+    ) -> bool:
+        """Move a page to be a child of a different parent.
+
+        Uses the Confluence REST v1 move endpoint:
+        ``PUT /wiki/rest/api/content/{id}/move/append/{target_id}``
+
+        Args:
+            page_id: ID of the page to move.
+            new_parent_id: ID of the new parent page.
+
+        Returns:
+            True if successful.
+        """
+        self._ensure_client()
+        try:
+            # The atlassian-python-api client exposes a generic request helper
+            self.client.put(f"rest/api/content/{page_id}/move/append/{new_parent_id}")
+            logger.info(f"Moved page {page_id} under parent {new_parent_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to move page {page_id}: {e}")
+            raise
+
     async def get_page_content_text(self, page_id: str) -> Optional[str]:
         """
         Get page content as plain text (for AI analysis)
