@@ -1195,13 +1195,26 @@ class ConfluenceService:
             if not result:
                 return None
 
-            # Build ancestors list
+            # Build ancestors list, filtering out the space homepage
+            # The Confluence API always returns the space homepage as the
+            # first ancestor.  Skipping it prevents the space title
+            # (e.g. "Customer Knowledge") from being mistaken for the
+            # customer name.
+            raw_ancestors = result.get("ancestors", [])
+            meaningful = raw_ancestors[1:] if len(raw_ancestors) > 1 else []
+
             ancestors = []
-            for ancestor in result.get("ancestors", []):
+            for i, ancestor in enumerate(meaningful):
+                ancestor_type = "unknown"
+                if i == 0:
+                    ancestor_type = "customer"
+                elif i == 1:
+                    ancestor_type = "family"
                 ancestors.append(
                     {
                         "id": ancestor.get("id"),
                         "title": ancestor.get("title"),
+                        "type": ancestor_type,
                     }
                 )
 

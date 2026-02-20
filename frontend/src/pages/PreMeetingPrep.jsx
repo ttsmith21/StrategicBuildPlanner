@@ -59,6 +59,7 @@ export default function PreMeetingPrep() {
   const checklistRef = useRef(null); // Ref to always have latest checklist for publish
   const [uploadProgress, setUploadProgress] = useState(0);
   const [confluenceUrl, setConfluenceUrl] = useState(null);
+  const [hierarchyWarning, setHierarchyWarning] = useState(null);
 
   // Keep ref in sync with state - ensures handlePublish always has latest checklist
   useEffect(() => {
@@ -386,21 +387,40 @@ export default function PreMeetingPrep() {
     }
 
     // Auto-populate customer name from ancestors
-    // Hierarchy: Customer → Family of Parts → Project
-    // Ancestors array from Confluence: [root/space, ..., customer, family_of_parts]
-    // So customer is the second-to-last ancestor (grandparent)
-    if (page?.ancestors && page.ancestors.length >= 2) {
-      // Get the grandparent (Customer level)
-      const customer = page.ancestors[page.ancestors.length - 2];
-      if (customer?.title) {
-        setCustomerName(customer.title);
+    // Backend now filters out the space homepage and adds type hints.
+    // Filtered ancestors: [Customer, Family] for 3-level, [Customer] for 2-level, [] if directly under homepage
+    if (page?.ancestors && page.ancestors.length >= 1) {
+      // Use type field from backend, or fall back to first ancestor
+      const customerAncestor = page.ancestors.find(a => a.type === 'customer') || page.ancestors[0];
+      if (customerAncestor?.title) {
+        setCustomerName(customerAncestor.title);
       }
-    } else if (page?.ancestors && page.ancestors.length === 1) {
-      // Only one ancestor - use it as customer
-      const customer = page.ancestors[0];
-      if (customer?.title) {
-        setCustomerName(customer.title);
+    } else {
+      // No meaningful ancestors - try to parse customer from page title
+      // Title format: "F51907 - VEOLIA-HYDRO" or "F51907 - Customer Name"
+      const titleMatch = page?.title?.match(/^[A-Za-z]?\d+\s*[-\u2013]\s*(.+)$/);
+      if (titleMatch) {
+        const rawCustomer = titleMatch[1].trim()
+          .replace(/-/g, ' ')
+          .split(' ')
+          .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+          .join(' ');
+        setCustomerName(rawCustomer);
       }
+    }
+
+    // Detect missing Family of Parts page
+    const hasFamilyAncestor = page?.ancestors?.some(a => a.type === 'family');
+    if (page?.ancestors && page.ancestors.length >= 1 && !hasFamilyAncestor) {
+      setHierarchyWarning({
+        type: 'missing_family',
+        customerPageId: page.ancestors.find(a => a.type === 'customer')?.id || page.ancestors[0]?.id,
+        customerName: page.ancestors.find(a => a.type === 'customer')?.title || page.ancestors[0]?.title,
+        projectPageId: page.id,
+        projectTitle: page.title,
+      });
+    } else {
+      setHierarchyWarning(null);
     }
   }, []);
 
@@ -485,6 +505,7 @@ export default function PreMeetingPrep() {
     setVectorStoreId(null);
     setChecklist(null);
     setConfluenceUrl(null);
+    setHierarchyWarning(null);
     setError(null);
     // Reset quote state
     setQuoteAssumptions(null);
